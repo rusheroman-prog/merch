@@ -149,6 +149,82 @@ export default function AdminProductsClient({
     }
   }, [products])
 
+  function handleExportStockCsv() {
+    const rows = filteredProducts.flatMap((product) => {
+      const productStats = getProductStats(product)
+
+      const baseRow = {
+        product_name: product.name,
+        category: getCategoryName(product),
+        material: product.material || '',
+        product_status: product.is_active ? 'Активен' : 'Отключён',
+        product_total_qty: String(productStats.totalQty),
+        product_reserved_qty: String(productStats.reservedQty),
+        product_available_qty: String(productStats.availableQty),
+        product_low_variants: String(productStats.lowVariants),
+        product_zero_variants: String(productStats.zeroVariants),
+      }
+
+      if (product.product_variants.length === 0) {
+        return [
+          {
+            ...baseRow,
+            variant_size: '',
+            variant_color: '',
+            sku: '',
+            variant_status: '',
+            total_qty: '',
+            reserved_qty: '',
+            available_qty: '',
+            stock_status: 'Нет вариантов',
+          },
+        ]
+      }
+
+      return product.product_variants.map((variant) => {
+        const totalQty = Number(variant.total_qty)
+        const reservedQty = Number(variant.reserved_qty)
+        const availableQty = Math.max(0, totalQty - reservedQty)
+
+        const stockStatus =
+          availableQty <= 0
+            ? 'В нуле'
+            : availableQty <= 4
+              ? 'Низкий остаток'
+              : 'Норма'
+
+        return {
+          ...baseRow,
+          variant_size: variant.size || 'ONE SIZE',
+          variant_color: variant.color || 'Без цвета',
+          sku: variant.sku || '',
+          variant_status: variant.is_active ? 'Активен' : 'Отключён',
+          total_qty: String(totalQty),
+          reserved_qty: String(reservedQty),
+          available_qty: String(availableQty),
+          stock_status: stockStatus,
+        }
+      })
+    })
+
+    const csv = toCsv(rows)
+
+    const blob = new Blob([`\uFEFF${csv}`], {
+      type: 'text/csv;charset=utf-8;',
+    })
+
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+
+    link.href = url
+    link.download = `uzum-merch-stock-${getExportDate()}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <AdminShell
       adminEmail={adminEmail}
@@ -264,6 +340,18 @@ export default function AdminProductsClient({
               />
               Показывать отключённые
             </label>
+
+            <button
+              type="button"
+              onClick={handleExportStockCsv}
+              disabled={filteredProducts.length === 0}
+              style={{
+                ...styles.exportButton,
+                ...(filteredProducts.length === 0 ? styles.exportButtonDisabled : {}),
+              }}
+            >
+              Экспорт CSV
+            </button>
 
             <button
               type="button"
@@ -1356,6 +1444,67 @@ function getProductLetter(name: string) {
   return name.trim()[0]?.toUpperCase() ?? 'U'
 }
 
+function getExportDate() {
+  const date = new Date()
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+
+  return `${year}-${month}-${day}_${hours}-${minutes}`
+}
+
+function toCsv(rows: Array<Record<string, string>>) {
+  if (rows.length === 0) {
+    return ''
+  }
+
+  const headers = Object.keys(rows[0])
+
+  const headerLabels: Record<string, string> = {
+    product_name: 'Товар',
+    category: 'Категория',
+    material: 'Материал',
+    product_status: 'Статус товара',
+    product_total_qty: 'Всего по товару',
+    product_reserved_qty: 'Резерв по товару',
+    product_available_qty: 'Доступно по товару',
+    product_low_variants: 'Вариантов с низким остатком',
+    product_zero_variants: 'Вариантов в нуле',
+    variant_size: 'Размер',
+    variant_color: 'Цвет',
+    sku: 'SKU',
+    variant_status: 'Статус варианта',
+    total_qty: 'Всего',
+    reserved_qty: 'Резерв',
+    available_qty: 'Доступно',
+    stock_status: 'Статус остатка',
+  }
+
+  const headerRow = headers.map((header) =>
+    escapeCsv(headerLabels[header] ?? header)
+  )
+
+  const dataRows = rows.map((row) =>
+    headers.map((header) => escapeCsv(row[header] ?? '')).join(';')
+  )
+
+  return [headerRow.join(';'), ...dataRows].join('\n')
+}
+
+function escapeCsv(value: string) {
+  const normalizedValue = String(value)
+    .replace(/\r?\n|\r/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const escapedValue = normalizedValue.replace(/"/g, '""')
+
+  return `"${escapedValue}"`
+}
+
 const styles: Record<string, CSSProperties> = {
   pageBlock: {
     display: 'flex',
@@ -1428,6 +1577,21 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
     cursor: 'pointer',
     flex: '0 0 auto',
+  },
+  exportButton: {
+    height: '38px',
+    border: '1px solid var(--border)',
+    borderRadius: '999px',
+    background: '#ffffff',
+    color: 'var(--ink)',
+    padding: '0 14px',
+    fontSize: '13px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  exportButtonDisabled: {
+    opacity: 0.55,
+    cursor: 'not-allowed',
   },
   toolbarRight: {
     display: 'flex',
