@@ -2,7 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+} from 'react'
 
 type AdminShellProps = {
   children: ReactNode
@@ -60,6 +66,10 @@ export default function AdminShell({
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [topSearch, setTopSearch] = useState('')
 
+  useEffect(() => {
+    setTopSearch(searchParams.get('q') ?? '')
+  }, [searchParams])
+
   function getBadge(itemKey: string) {
     if (itemKey === 'orders' && typeof orderCount === 'number') {
       return orderCount
@@ -90,13 +100,28 @@ export default function AdminShell({
     event.preventDefault()
 
     const query = topSearch.trim()
+    const params = new URLSearchParams(searchParams.toString())
 
-    if (!query) {
-      router.push('/admin/orders')
+    if (query) {
+      params.set('q', query)
+    } else {
+      params.delete('q')
+    }
+
+    const nextQuery = params.toString()
+    const suffix = nextQuery ? `?${nextQuery}` : ''
+
+    if (pathname === '/admin/orders') {
+      router.push(`/admin/orders${suffix}`)
       return
     }
 
-    router.push(`/admin/orders?q=${encodeURIComponent(query)}`)
+    if (pathname === '/admin/products') {
+      router.push(`/admin/products${suffix}`)
+      return
+    }
+
+    router.push(query ? `/admin/orders?q=${encodeURIComponent(query)}` : '/admin/orders')
   }
 
   return (

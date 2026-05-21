@@ -3,7 +3,7 @@
 import AdminShell from '@/components/AdminShell'
 import ProductImageUploader from '@/components/ProductImageUploader'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 
 export type AdminCategory = {
   id: string
@@ -56,14 +56,19 @@ export default function AdminProductsClient({
 }: Props) {
   const searchParams = useSearchParams()
   const isCardsMode = searchParams.get('mode') === 'cards'
+  const queryFromUrl = searchParams.get('q') ?? ''
 
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(queryFromUrl)
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [stockFilter, setStockFilter] = useState<StockFilter>('all')
   const [showInactive, setShowInactive] = useState(true)
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null)
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+
+  useEffect(() => {
+    setSearch(queryFromUrl)
+  }, [queryFromUrl])
 
   const filteredProducts = useMemo(() => {
     const value = search.trim().toLowerCase()
@@ -192,6 +197,16 @@ export default function AdminProductsClient({
               placeholder="Поиск товара, материала, SKU..."
               style={styles.searchInput}
             />
+
+            {search.trim().length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                style={styles.clearSearchButton}
+              >
+                ×
+              </button>
+            )}
           </div>
 
           <div style={styles.toolbarRight}>
@@ -1398,6 +1413,21 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--ink)',
     fontSize: '13px',
     fontWeight: 700,
+  },
+  clearSearchButton: {
+    width: '24px',
+    height: '24px',
+    border: 0,
+    borderRadius: '999px',
+    background: '#f1ebff',
+    color: 'var(--inkMute)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '16px',
+    fontWeight: 900,
+    cursor: 'pointer',
+    flex: '0 0 auto',
   },
   toolbarRight: {
     display: 'flex',
