@@ -233,7 +233,7 @@ export default function AdminProductsClient({
       orderCount={orderCount}
       stockAlertCount={totals.lowVariants}
     >
-      <section style={styles.pageBlock}>
+      <section className="admin-products" style={styles.pageBlock}>
         <section style={styles.categoryTabs}>
           <button
             type="button"
@@ -263,7 +263,7 @@ export default function AdminProductsClient({
           ))}
         </section>
 
-        <section style={styles.toolbar}>
+        <section className="admin-products__toolbar" style={styles.toolbar}>
           <div style={styles.searchBox}>
             <span style={styles.searchIcon}>⌕</span>
 
@@ -285,8 +285,8 @@ export default function AdminProductsClient({
             )}
           </div>
 
-          <div style={styles.toolbarRight}>
-            <div style={styles.stockTabs}>
+          <div className="admin-products__toolbarRight" style={styles.toolbarRight}>
+            <div className="admin-products__stockTabs" style={styles.stockTabs}>
               <button
                 type="button"
                 onClick={() => setStockFilter('all')}
@@ -381,7 +381,7 @@ export default function AdminProductsClient({
           />
         )}
 
-        <section style={styles.summaryStrip}>
+        <section className="admin-products__summaryStrip" style={styles.summaryStrip}>
           <SummaryMetric label="Товаров" value={String(totals.totalProducts)} />
           <SummaryMetric label="Активных" value={String(totals.activeProducts)} />
           <SummaryMetric label="Вариантов" value={String(totals.totalVariants)} />
@@ -715,6 +715,7 @@ function ProductRow({
 
   return (
     <article
+      className="admin-products__productCard"
       style={{
         ...styles.productCard,
         ...(isExpanded ? styles.productCardExpanded : {}),
@@ -723,6 +724,7 @@ function ProductRow({
     >
       <div
         role="button"
+        className="admin-products__productRow"
         tabIndex={0}
         onClick={onToggle}
         onKeyDown={(event) => {
@@ -746,18 +748,18 @@ function ProductRow({
           )}
         </div>
 
-        <div style={styles.productNameCell}>
+        <div className="admin-products__productNameCell" style={styles.productNameCell}>
           <span>{getCategoryName(product)}</span>
           <b>{product.name}</b>
           {!product.is_active && <small>Отключён</small>}
         </div>
 
-        <Metric label="Всего на складе" value={`${stats.totalQty} шт.`} />
-        <Metric label="Вариантов в нуле" value={String(stats.zeroVariants)} tone="pink" />
-        <Metric label="Низкие остатки" value={String(stats.lowVariants)} tone="pink" />
-        <Metric label="Вариантов" value={String(product.product_variants.length)} />
+        <Metric className="admin-products__metric" label="Всего на складе" value={`${stats.totalQty} шт.`} />
+        <Metric className="admin-products__metric" label="Вариантов в нуле" value={String(stats.zeroVariants)} tone="pink" />
+        <Metric className="admin-products__metric" label="Низкие остатки" value={String(stats.lowVariants)} tone="pink" />
+        <Metric className="admin-products__metric" label="Вариантов" value={String(product.product_variants.length)} />
 
-        <div style={styles.rowActions}>
+        <div className="admin-products__rowActions" style={styles.rowActions}>
           {!isCardsMode && (
             <button
               type="button"
@@ -1368,13 +1370,15 @@ function SummaryMetric({
   label,
   value,
   tone,
+  className,
 }: {
   label: string
   value: string
+  className?: string
   tone?: 'pink'
 }) {
   return (
-    <div style={styles.summaryMetric}>
+    <div className={className} style={styles.summaryMetric}>
       <span>{label}</span>
       <b style={tone === 'pink' ? styles.pinkText : undefined}>{value}</b>
     </div>
@@ -1385,13 +1389,15 @@ function Metric({
   label,
   value,
   tone,
+  className,
 }: {
   label: string
   value: string
   tone?: 'pink'
+  className?: string
 }) {
   return (
-    <div style={styles.metric}>
+    <div className={className} style={styles.metric}>
       <span>{label}</span>
       <b style={tone === 'pink' ? styles.pinkText : undefined}>{value}</b>
     </div>

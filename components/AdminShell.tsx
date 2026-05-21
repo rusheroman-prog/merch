@@ -125,8 +125,8 @@ export default function AdminShell({
   }
 
   return (
-    <main style={styles.shell}>
-      <aside style={styles.sidebar}>
+    <main className="admin-shell" style={styles.shell}>
+      <aside className="admin-shell__sidebar" style={styles.sidebar}>
         <Link href="/admin" style={styles.brand}>
           <img src="/brand/uzum-logo.svg" alt="Uzum" style={styles.brandLogo} />
 
@@ -193,15 +193,15 @@ export default function AdminShell({
         </div>
       </aside>
 
-      <section style={styles.main}>
-        <header style={styles.topbar}>
+      <section className="admin-shell__main" style={styles.main}>
+        <header className="admin-shell__topbar" style={styles.topbar}>
           <div>
             <div style={styles.topbarSubtitle}>{subtitle}</div>
             <h1 style={styles.topbarTitle}>{title}</h1>
           </div>
 
-          <div style={styles.topbarActions}>
-<form style={styles.searchBox} onSubmit={handleTopSearchSubmit}>
+          <div className="admin-shell__topbarActions" style={styles.topbarActions}>
+            <form className="admin-shell__searchForm" style={styles.searchBox} onSubmit={handleTopSearchSubmit}>
             <span style={styles.searchIcon}>⌕</span>
 
             <input
@@ -241,7 +241,6 @@ const styles: Record<string, CSSProperties> = {
   shell: {
     minHeight: '100vh',
     display: 'grid',
-    gridTemplateColumns: '262px minmax(0, 1fr)',
     background: '#f7f4ff',
     color: 'var(--ink)',
   },

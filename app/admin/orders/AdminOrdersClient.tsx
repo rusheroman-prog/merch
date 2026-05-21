@@ -214,14 +214,14 @@ export default function AdminOrdersClient({
       orderCount={orders.length}
       stockAlertCount={stockAlertCount}
     >
-      <section style={styles.pageBlock}>
+      <section className="admin-orders" style={styles.pageBlock}>
         <StatusTabs
           activeStatus={statusFilter}
           counters={counters}
           onChange={setStatusFilter}
         />
 
-        <section style={styles.toolbar}>
+        <section className="admin-orders__toolbar" style={styles.toolbar}>
           <div style={styles.searchBox}>
             <span style={styles.searchIcon}>⌕</span>
 
@@ -243,7 +243,7 @@ export default function AdminOrdersClient({
             )}
           </div>
 
-          <div style={styles.toolbarRight}>
+          <div className="admin-orders__toolbarRight" style={styles.toolbarRight}>
             <label style={styles.sortLabel}>
               Сортировка:
               <select
@@ -285,7 +285,7 @@ export default function AdminOrdersClient({
           </section>
         ) : (
           <section style={styles.tableCard}>
-            <div style={styles.tableHeader}>
+            <div className="admin-orders__tableHeader" style={styles.tableHeader}>
               <div style={styles.checkboxCell}>
                 <input type="checkbox" readOnly />
               </div>
@@ -304,9 +304,10 @@ export default function AdminOrdersClient({
                 const isExpanded = expandedOrderId === order.id
 
                 return (
-                  <div key={order.id} style={styles.orderGroup}>
+                  <div key={order.id} className="admin-orders__orderGroup" style={styles.orderGroup}>
                     <button
                       type="button"
+                      className="admin-orders__tableRow"
                       style={{
                         ...styles.tableRow,
                         ...(isExpanded ? styles.tableRowExpanded : {}),
@@ -319,9 +320,9 @@ export default function AdminOrdersClient({
                         <input type="checkbox" readOnly />
                       </div>
 
-                      <div style={styles.orderNumber}>#{order.order_number}</div>
+                      <div className="admin-orders__orderNumber" style={styles.orderNumber}>#{order.order_number}</div>
 
-                      <div style={styles.receiverCell}>
+                      <div className="admin-orders__receiverCell" style={styles.receiverCell}>
                         <div style={styles.avatar}>
                           {getInitials(order.full_name, order.email)}
                         </div>
@@ -332,12 +333,12 @@ export default function AdminOrdersClient({
                         </div>
                       </div>
 
-                      <div style={styles.contactCell}>
+                      <div className="admin-orders__contactCell" style={styles.contactCell}>
                         <b>{order.department || 'Отдел не указан'}</b>
                         <span>{order.email || order.phone || 'Контакт не указан'}</span>
                       </div>
 
-                      <div style={styles.itemsCell}>
+                      <div className="admin-orders__itemsCell" style={styles.itemsCell}>
                         <div style={styles.itemMarks}>
                           {order.order_items.slice(0, 3).map((item, index) => (
                             <span key={item.id} style={getItemMarkStyle(index)}>
@@ -351,11 +352,11 @@ export default function AdminOrdersClient({
                         </span>
                       </div>
 
-                      <div style={styles.deliveryCell}>
+                      <div className="admin-orders__deliveryCell" style={styles.deliveryCell}>
                         {deliveryLabels[order.delivery_type]}
                       </div>
 
-                      <div style={styles.dateCell}>
+                      <div className="admin-orders__dateCell" style={styles.dateCell}>
                         {formatRelativeDate(order.created_at)}
                       </div>
 
@@ -365,7 +366,7 @@ export default function AdminOrdersClient({
                         </span>
                       </div>
 
-                      <div style={styles.arrowCell}>
+                      <div className="admin-orders__arrowCell" style={styles.arrowCell}>
                         {isExpanded ? '↑' : '→'}
                       </div>
                     </button>
@@ -392,7 +393,7 @@ function StatusTabs({
   onChange: (status: OrderStatus | 'all') => void
 }) {
   return (
-    <section style={styles.statusTabs}>
+    <section className="admin-orders__statusTabs" style={styles.statusTabs}>
       <button
         type="button"
         onClick={() => onChange('all')}
