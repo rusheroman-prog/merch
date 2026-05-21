@@ -1,26 +1,260 @@
-@import "tailwindcss";
+@font-face {
+  font-family: "TT Uzum";
+  src: url("/fonts/TT-Uzum-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TT Uzum";
+  src: url("/fonts/TT-Uzum-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TT Uzum";
+  src: url("/fonts/TT-Uzum-DemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TT Uzum";
+  src: url("/fonts/TT-Uzum-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TT Uzum";
+  src: url("/fonts/TT-Uzum-ExtraBold.woff") format("woff");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TT Uzum";
+  src: url("/fonts/TT-Uzum-Black.woff") format("woff");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Nunito";
+  src: url("/fonts/Nunito-Light.ttf") format("truetype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Nunito";
+  src: url("/fonts/Nunito-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Nunito";
+  src: url("/fonts/Nunito-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #ffffff;
+  --bg-soft: #f6f3ff;
+
+  --surface: rgba(255, 255, 255, 0.94);
+  --surface-solid: #ffffff;
+  --surface-muted: #f6f3ff;
+  --surfaceAlt: #fbfaff;
+
+  --text: #1a0d3a;
+  --text-soft: #6b6585;
+  --text-muted: #8a8197;
+
+  --ink: #1a0d3a;
+  --inkMute: #6b6585;
+  --inkSoft: #8a8197;
+
+  --primary: #7000ff;
+  --primary-hover: #5000aa;
+  --primary-soft: #f1ebff;
+
+  --accent: #7000ff;
+  --accentHover: #5000aa;
+  --accentInk: #ffffff;
+
+  --pink: #ff88de;
+  --dark-purple: #5000aa;
+  --chip: #f1ebff;
+
+  --success: #16a34a;
+  --success-soft: #dcfce7;
+
+  --warning: #d97706;
+  --warning-soft: #fef3c7;
+
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+
+  --border: #ece6fa;
+  --border-strong: #dccdff;
+
+  --shadow-sm: 0 8px 20px rgba(26, 13, 58, 0.06);
+  --shadow-md: 0 18px 46px rgba(26, 13, 58, 0.1);
+  --shadow-lg: 0 28px 90px rgba(26, 13, 58, 0.16);
+
+  --shadow-soft: 0 8px 20px rgba(26, 13, 58, 0.06);
+  --shadow-card: 0 18px 46px rgba(26, 13, 58, 0.1);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-card: 24px;
+  --r-pill: 999px;
+
+  --font-display: "TT Uzum", Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Nunito", Inter, ui-sans-serif, system-ui, sans-serif;
+
+  --container: 1320px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  min-height: 100%;
+  background: var(--bg);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100%;
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 14% -8%, rgba(112, 0, 255, 0.13), transparent 34%),
+    radial-gradient(circle at 92% 6%, rgba(255, 136, 222, 0.16), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #fbfaff 42%, #f6f3ff 100%);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    opacity 0.18s ease;
+}
+
+button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+button:not(:disabled):active {
+  transform: translateY(0);
+}
+
+button:disabled {
+  opacity: 0.72;
+}
+
+input,
+select,
+textarea {
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(112, 0, 255, 0.5) !important;
+  box-shadow: 0 0 0 4px rgba(112, 0, 255, 0.1);
+}
+
+img {
+  display: block;
+}
+
+::selection {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.uzum-display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.uzum-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(18px);
+}
+
+.uzum-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: var(--radius-pill);
+  padding: 7px 13px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 900;
+  border: 1px solid rgba(112, 0, 255, 0.1);
+}
+
+@media (max-width: 860px) {
+  body {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    background:
+      radial-gradient(circle at 10% -4%, rgba(112, 0, 255, 0.12), transparent 36%),
+      linear-gradient(180deg, #ffffff 0%, #f6f3ff 100%);
+  }
 }
