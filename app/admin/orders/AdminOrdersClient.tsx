@@ -161,6 +161,51 @@ export default function AdminOrdersClient({
     })
   }, [orders, search, sortMode, statusFilter])
 
+  function handleExportCsv() {
+    const rows = filteredOrders.map((order) => {
+      const itemsText = order.order_items
+        .map((item) => {
+          return `${item.product_name} / ${formatVariant(item)} / ${item.qty} шт. / SKU: ${item.sku || '—'}`
+        })
+        .join('; ')
+
+      return {
+        order_number: order.order_number,
+        status: statusLabels[order.status],
+        created_at: formatDateTime(order.created_at),
+        full_name: order.full_name || '',
+        email: order.email || '',
+        phone: order.phone || '',
+        department: order.department || '',
+        city: order.city || '',
+        delivery_type: deliveryLabels[order.delivery_type],
+        delivery_address: order.delivery_address || '',
+        items_qty: String(getTotalQty(order)),
+        items: itemsText,
+        comment: order.comment || '',
+        admin_comment: order.admin_comment || '',
+        tracking_number: order.tracking_number || '',
+      }
+    })
+
+    const csv = toCsv(rows)
+
+    const blob = new Blob([`\uFEFF${csv}`], {
+      type: 'text/csv;charset=utf-8;',
+    })
+
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+
+    link.href = url
+    link.download = `uzum-merch-orders-${getExportDate()}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <AdminShell
       adminEmail={adminEmail}
@@ -213,7 +258,16 @@ export default function AdminOrdersClient({
               </select>
             </label>
 
-            <button type="button" style={styles.exportButton}>
+            <button
+              type="button"
+              style={
+                filteredOrders.length === 0
+                  ? { ...styles.exportButton, ...styles.exportButtonDisabled }
+                  : styles.exportButton
+              }
+              onClick={handleExportCsv}
+              disabled={filteredOrders.length === 0}
+            >
               Экспорт CSV
             </button>
           </div>
@@ -581,6 +635,74 @@ function formatRelativeDate(value: string) {
   })
 }
 
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('ru-RU', {
+    timeZone: 'Asia/Tashkent',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function getExportDate() {
+  const date = new Date()
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+
+  return `${year}-${month}-${day}_${hours}-${minutes}`
+}
+
+function toCsv(rows: Array<Record<string, string>>) {
+  if (rows.length === 0) {
+    return ''
+  }
+
+  const headers = Object.keys(rows[0])
+
+  const headerLabels: Record<string, string> = {
+    order_number: 'Номер заказа',
+    status: 'Статус',
+    created_at: 'Дата создания',
+    full_name: 'ФИО',
+    email: 'Email',
+    phone: 'Телефон',
+    department: 'Отдел',
+    city: 'Город',
+    delivery_type: 'Способ получения',
+    delivery_address: 'Адрес / точка получения',
+    items_qty: 'Количество товаров',
+    items: 'Состав заказа',
+    comment: 'Комментарий сотрудника',
+    admin_comment: 'Комментарий администратора',
+    tracking_number: 'Трек-номер',
+  }
+
+  const headerRow = headers.map((header) => escapeCsv(headerLabels[header] ?? header))
+
+  const dataRows = rows.map((row) =>
+    headers.map((header) => escapeCsv(row[header] ?? '')).join(';')
+  )
+
+  return [headerRow.join(';'), ...dataRows].join('\n')
+}
+
+function escapeCsv(value: string) {
+  const normalizedValue = String(value)
+    .replace(/\r?\n|\r/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const escapedValue = normalizedValue.replace(/"/g, '""')
+
+  return `"${escapedValue}"`
+}
+
 function getInitials(name: string | null, email: string | null) {
   const source = name?.trim() || email?.split('@')[0] || 'U'
   const parts = source.split(/[ ._-]/).filter(Boolean)
@@ -777,6 +899,10 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '13px',
     fontWeight: 800,
     cursor: 'pointer',
+  },
+  exportButtonDisabled: {
+    opacity: 0.55,
+    cursor: 'not-allowed',
   },
 
   tableCard: {
