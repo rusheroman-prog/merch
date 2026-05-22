@@ -75,7 +75,7 @@ export default function AdminShell({
 
         <Link href="/admin" className="admin-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/uzum-logo.svg" alt="Uzum" className="admin-brand-logo" />
+          <img src="/brand/uzum-big-logo.webp" alt="Uzum" className="admin-brand-logo" />
           <div className="admin-brand-text">uzum мерч</div>
           <span className="admin-badge">ADMIN</span>
         </Link>

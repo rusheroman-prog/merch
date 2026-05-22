@@ -6,6 +6,27 @@ import CatalogClient, {
   type CatalogVariant,
 } from './CatalogClient'
 
+type CatalogQueryVariant = {
+  id: string
+  size: string | null
+  color: string | null
+  sku: string | null
+  total_qty: number | null
+  reserved_qty: number | null
+  is_active: boolean | null
+}
+
+type CatalogQueryProduct = {
+  id: string
+  name: string
+  description: string | null
+  material: string | null
+  image_url: string | null
+  images: string[] | null
+  categories: { name: string | null } | Array<{ name: string | null }> | null
+  product_variants: CatalogQueryVariant[] | null
+}
+
 export default async function CatalogPage() {
   const supabase = await createClient()
 
@@ -73,11 +94,11 @@ export default async function CatalogPage() {
     )
   }
 
-  const products: CatalogProduct[] = (data ?? [])
-    .map((product: any) => {
+  const products: CatalogProduct[] = ((data ?? []) as CatalogQueryProduct[])
+    .map((product) => {
       const variants: CatalogVariant[] = (product.product_variants ?? [])
-        .filter((variant: any) => variant.is_active)
-        .map((variant: any) => {
+        .filter((variant) => variant.is_active)
+        .map((variant) => {
           const totalQty = Number(variant.total_qty ?? 0)
           const reservedQty = Number(variant.reserved_qty ?? 0)
 

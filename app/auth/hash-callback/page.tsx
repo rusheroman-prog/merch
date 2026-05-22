@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/client'
 import type { EmailOtpType } from '@supabase/supabase-js'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo } from 'react'
 
 export default function HashCallbackPage() {
   return (
@@ -17,7 +17,7 @@ function HashCallbackContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = useMemo(() => createClient(), [])
-  const [message, setMessage] = useState('Завершаем вход...')
+  const message = 'Завершаем вход...'
 
   useEffect(() => {
     async function finishSignIn() {

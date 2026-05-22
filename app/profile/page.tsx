@@ -52,11 +52,12 @@ export default async function ProfilePage() {
   return (
     <div>
       <header className="site-head">
+        <div className="site-head-glass" aria-hidden="true" />
         <div className="head-inner">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <a href="/catalog" className="brand">
             <span className="brand-mark">
-              <img src="/brand/uzum-logo.svg" alt="Uzum" width={32} height={32} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/uzum-big-logo.webp" alt="Uzum" />
             </span>
             <span className="brand-name">
               uzum <span className="brand-name-soft">мерч</span>

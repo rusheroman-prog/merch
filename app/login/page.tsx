@@ -23,11 +23,16 @@ function LoginContent() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
   const [sentEmail, setSentEmail] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const urlError = searchParams.get('error')
   const urlDescription = searchParams.get('description')
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   useEffect(() => {
     async function checkSession() {
@@ -152,13 +157,24 @@ function LoginContent() {
     }
   }
 
+  if (!isMounted) {
+    return (
+      <main className="login-page">
+        <section className="login-shell">
+          <div className="login-left" />
+          <section className="login-card" aria-busy="true" />
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="login-page">
       <section className="login-shell">
         <div className="login-left">
           <a href="/login" className="login-brand">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/uzum-logo.svg" alt="Uzum" className="login-logo" />
+            <img src="/brand/uzum-big-logo.webp" alt="Uzum" className="login-logo" />
             <span className="login-brand-text">
               uzum <span style={{ fontWeight: 400 }}>мерч</span>
             </span>
