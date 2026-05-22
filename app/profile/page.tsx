@@ -1,8 +1,8 @@
-import { redirect } from 'next/navigation'
-import Link from 'next/link'
+import AppNav from '@/components/AppNav'
 import { createClient } from '@/lib/supabase/server'
+import { needsPasswordSetup } from '@/lib/auth'
+import { redirect } from 'next/navigation'
 import ProfileClient, { type EmployeeProfile } from './ProfileClient'
-import type { CSSProperties } from 'react'
 
 export default async function ProfilePage() {
   const supabase = await createClient()
@@ -15,7 +15,11 @@ export default async function ProfilePage() {
     redirect('/login')
   }
 
-  const { data, error } = await supabase
+  if (await needsPasswordSetup(supabase, user.id)) {
+    redirect('/set-password')
+  }
+
+  const { data: employee } = await supabase
     .from('employees')
     .select(
       `
@@ -33,71 +37,38 @@ export default async function ProfilePage() {
     .eq('id', user.id)
     .maybeSingle()
 
-  if (error) {
-    return (
-      <main style={styles.page}>
-        <section style={styles.errorCard}>
-          <h1 style={styles.errorTitle}>Не удалось загрузить профиль</h1>
-          <p style={styles.errorText}>{error.message}</p>
-
-          <Link href="/catalog" style={styles.backLink}>
-            Вернуться в каталог
-          </Link>
-        </section>
-      </main>
-    )
-  }
-
   const profile: EmployeeProfile = {
     id: user.id,
-    full_name:
-      data?.full_name ||
-      user.user_metadata?.full_name ||
-      user.email?.split('@')[0] ||
-      '',
-    email: data?.email || user.email || '',
-    phone: data?.phone || '',
-    department: data?.department || '',
-    position: data?.position || '',
-    city: data?.city || '',
-    office: data?.office || '',
-    is_admin: Boolean(data?.is_admin),
+    full_name: employee?.full_name ?? '',
+    email: employee?.email ?? user.email ?? '',
+    phone: employee?.phone ?? '',
+    department: employee?.department ?? '',
+    position: employee?.position ?? '',
+    city: employee?.city ?? '',
+    office: employee?.office ?? '',
+    is_admin: Boolean(employee?.is_admin),
   }
 
-  return <ProfileClient profile={profile} />
-}
+  return (
+    <div>
+      <header className="site-head">
+        <div className="head-inner">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <a href="/catalog" className="brand">
+            <span className="brand-mark">
+              <img src="/brand/uzum-logo.svg" alt="Uzum" width={32} height={32} />
+            </span>
+            <span className="brand-name">
+              uzum <span className="brand-name-soft">мерч</span>
+            </span>
+            <span className="brand-sub">личный кабинет</span>
+          </a>
 
-const styles: Record<string, CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    background: '#f5f5f7',
-    padding: '32px',
-    fontFamily:
-      'Inter, Arial, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-  },
-  errorCard: {
-    maxWidth: '640px',
-    margin: '80px auto',
-    background: '#ffffff',
-    borderRadius: '20px',
-    padding: '28px',
-    boxShadow: '0 14px 40px rgba(0,0,0,0.07)',
-  },
-  errorTitle: {
-    margin: '0 0 12px',
-    fontSize: '24px',
-    fontWeight: 800,
-    color: '#991b1b',
-  },
-  errorText: {
-    margin: '0 0 16px',
-    color: '#374151',
-    fontSize: '15px',
-    lineHeight: 1.5,
-  },
-  backLink: {
-    color: '#7c3aed',
-    fontWeight: 800,
-    textDecoration: 'none',
-  },
+          <AppNav isAdmin={profile.is_admin} showLogout />
+        </div>
+      </header>
+
+      <ProfileClient profile={profile} />
+    </div>
+  )
 }

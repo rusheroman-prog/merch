@@ -1,7 +1,12 @@
 'use client'
 
 import AppNav from '@/components/AppNav'
-import { useMemo, useState, type CSSProperties } from 'react'
+import { decline, getProductLetter } from '@/lib/utils'
+import { useMemo, useState } from 'react'
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  Types                                                                       */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 export type CatalogVariant = {
   id: string
@@ -30,6 +35,8 @@ type CartItem = {
   qty: number
 }
 
+type SortMode = 'rec' | 'abc'
+
 type DeliveryType = 'office' | 'pvz' | 'pickup' | 'courier'
 
 type CheckoutDefaults = {
@@ -41,366 +48,378 @@ type CheckoutDefaults = {
 type CatalogClientProps = {
   products: CatalogProduct[]
   userEmail: string | null
+  userName: string | null
+  userDepartment: string | null
   isAdmin: boolean
   checkoutDefaults: CheckoutDefaults
 }
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  Constants                                                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 const deliveryLabels: Record<DeliveryType, string> = {
-  office: 'В офис',
-  pvz: 'ПВЗ / филиал',
-  pickup: 'Самовывоз',
+  office:  'В офис',
+  pvz:     'ПВЗ / филиал',
+  pickup:  'Самовывоз',
   courier: 'Курьер',
 }
 
-function getCheckoutErrorMessage(error: string) {
-  if (error.includes('product_already_ordered')) {
-    return 'Один из выбранных товаров уже был заказан ранее. Повторный заказ этого товара недоступен.'
-  }
-
-  if (error.includes('one_unit_per_product_only')) {
-    return 'Можно заказать только 1 единицу одного товара.'
-  }
-
-  if (error.includes('one_variant_per_product_only')) {
-    return 'Нельзя выбрать несколько вариантов одного товара.'
-  }
-
-  if (error.includes('product_is_not_available')) {
-    return 'Один из выбранных товаров сейчас недоступен для заказа.'
-  }
-
-  return error || 'Не удалось оформить заказ'
-}
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  CatalogClient                                                               */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 export default function CatalogClient({
   products,
   userEmail,
+  userName,
+  userDepartment,
   isAdmin,
   checkoutDefaults,
 }: CatalogClientProps) {
+  /* Cart */
   const [cart, setCart] = useState<CartItem[]>([])
 
-  const [deliveryType, setDeliveryType] = useState<DeliveryType>(
-    checkoutDefaults.deliveryType
-  )
-
-  const [deliveryAddress, setDeliveryAddress] = useState(
-    checkoutDefaults.deliveryAddress
-  )
-
-  const [phone, setPhone] = useState(checkoutDefaults.phone)
-  const [comment, setComment] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [checkoutError, setCheckoutError] = useState<string | null>(null)
+  /* Checkout form */
+  const [deliveryType,    setDeliveryType]    = useState<DeliveryType>(checkoutDefaults.deliveryType)
+  const [deliveryAddress, setDeliveryAddress] = useState(checkoutDefaults.deliveryAddress)
+  const [phone,           setPhone]           = useState(checkoutDefaults.phone)
+  const [comment,         setComment]         = useState('')
+  const [isSubmitting,    setIsSubmitting]    = useState(false)
+  const [checkoutError,   setCheckoutError]   = useState<string | null>(null)
   const [checkoutSuccess, setCheckoutSuccess] = useState<string | null>(null)
 
+  /* Filters */
   const [selectedCategory, setSelectedCategory] = useState<string>('Все')
-  const [search, setSearch] = useState('')
+  const [search,           setSearch]           = useState('')
+  const [sortMode,         setSortMode]         = useState<SortMode>('rec')
 
+  /* Derived */
   const categories = useMemo(() => {
-    const uniqueCategories = Array.from(
-      new Set(
-        products
-          .map((product) => product.category_name)
-          .filter(Boolean) as string[]
-      )
+    const unique = Array.from(
+      new Set(products.map(p => p.category_name).filter(Boolean) as string[])
     )
-
-    return ['Все', ...uniqueCategories]
+    return ['Все', ...unique]
   }, [products])
 
   const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
-      const categoryMatch =
-        selectedCategory === 'Все' || product.category_name === selectedCategory
-
-      const searchValue = search.trim().toLowerCase()
-
-      const searchMatch =
-        searchValue.length === 0 ||
-        product.name.toLowerCase().includes(searchValue) ||
-        product.description?.toLowerCase().includes(searchValue) ||
-        product.category_name?.toLowerCase().includes(searchValue) ||
-        product.material?.toLowerCase().includes(searchValue)
-
-      return categoryMatch && searchMatch
+    const q = search.trim().toLowerCase()
+    const filtered = products.filter(p => {
+      const catMatch = selectedCategory === 'Все' || p.category_name === selectedCategory
+      const srchMatch =
+        q.length === 0 ||
+        p.name.toLowerCase().includes(q) ||
+        p.description?.toLowerCase().includes(q) ||
+        p.category_name?.toLowerCase().includes(q) ||
+        p.material?.toLowerCase().includes(q)
+      return catMatch && srchMatch
     })
-  }, [products, selectedCategory, search])
+    if (sortMode === 'abc') {
+      return [...filtered].sort((a, b) =>
+        a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' })
+      )
+    }
+    return filtered
+  }, [products, selectedCategory, search, sortMode])
 
-  const totalQty = cart.length
-  const firstName = getUserName(userEmail)
+  const totalQty      = cart.length
+  const firstName     = getUserFirstName(userName, userEmail)
+  const initials      = getInitials(userName, userEmail)
   const categoryCount = Math.max(0, categories.length - 1)
 
+  /* Cart actions */
   function isProductInCart(productId: string) {
-    return cart.some((item) => item.product.id === productId)
+    return cart.some(item => item.product.id === productId)
   }
 
   function addToCart(product: CatalogProduct, variant: CatalogVariant) {
     setCheckoutError(null)
     setCheckoutSuccess(null)
-
     if (variant.available_qty <= 0) {
       alert('Этот товар сейчас недоступен для заказа')
       return
     }
-
     if (isProductInCart(product.id)) {
-      alert(
-        'Этот товар уже добавлен в корзину. Можно заказать только 1 единицу одного товара.'
-      )
+      alert('Этот товар уже добавлен в корзину. Можно заказать только 1 единицу одного товара.')
       return
     }
-
-    setCart((currentCart) => [...currentCart, { product, variant, qty: 1 }])
+    setCart(cur => [...cur, { product, variant, qty: 1 }])
   }
 
   function removeFromCart(variantId: string) {
-    setCart((currentCart) =>
-      currentCart.filter((item) => item.variant.id !== variantId)
-    )
+    setCart(cur => cur.filter(item => item.variant.id !== variantId))
   }
 
+  /* Checkout */
   async function handleCheckout() {
-    if (cart.length === 0) {
-      setCheckoutError('Корзина пустая')
-      return
-    }
+    if (cart.length === 0) { setCheckoutError('Корзина пустая'); return }
 
     setIsSubmitting(true)
     setCheckoutError(null)
     setCheckoutSuccess(null)
 
     try {
-      const response = await fetch('/api/orders', {
+      const res = await fetch('/api/orders', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: cart.map((item) => ({
-            variant_id: item.variant.id,
-            qty: 1,
-          })),
-          delivery_type: deliveryType,
+          items:            cart.map(item => ({ variant_id: item.variant.id, qty: 1 })),
+          delivery_type:    deliveryType,
           delivery_address: deliveryAddress,
           phone,
           comment,
         }),
       })
 
-      const result = await response.json()
+      const result = await res.json()
 
-      if (!response.ok) {
+      if (!res.ok) {
         setCheckoutError(getCheckoutErrorMessage(result.error))
         return
       }
-
-      const orderNumber = result.order?.order_number
 
       setCart([])
       setDeliveryAddress(checkoutDefaults.deliveryAddress)
       setPhone(checkoutDefaults.phone)
       setComment('')
-
       setCheckoutSuccess(
-        orderNumber
-          ? `Заказ #${orderNumber} успешно создан`
+        result.order?.order_number
+          ? `Заказ #${result.order.order_number} успешно создан`
           : 'Заказ успешно создан'
       )
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Неизвестная ошибка'
-
-      setCheckoutError(message)
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : 'Неизвестная ошибка')
     } finally {
       setIsSubmitting(false)
     }
   }
 
+  /* ── Render ───────────────────────────────────────────────────────────── */
+
   return (
-    <main style={styles.page}>
-      <header style={styles.siteHead}>
-        <div style={styles.headInner}>
-          <a href="/catalog" style={styles.brand}>
-            <img src="/brand/uzum-logo.svg" alt="Uzum" style={styles.logo} />
+    <div>
+      {/* ── HEADER ──────────────────────────────────────────────────────── */}
+      <header className="site-head">
+        <div className="head-inner">
 
-            <span style={styles.brandName}>
-              uzum <span style={styles.brandNameSoft}>мерч</span>
+          <a href="/catalog" className="brand">
+            <span className="brand-mark">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/uzum-logo.svg" alt="Uzum" width={32} height={32} />
             </span>
-
-            <span style={styles.brandSub}>внутренний портал</span>
+            <span className="brand-name">
+              uzum <span className="brand-name-soft">мерч</span>
+            </span>
+            <span className="brand-sub">внутренний портал</span>
           </a>
 
           <AppNav isAdmin={isAdmin} />
+
+          <div className="head-side">
+            {totalQty > 0 && (
+              <button
+                type="button"
+                className="head-cart"
+                onClick={() =>
+                  document.getElementById('cart-aside')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                }
+              >
+                Корзина
+                <span className="head-cart-badge">{totalQty}</span>
+              </button>
+            )}
+
+            <a href="/profile" className="head-user">
+              <span className="head-user-avatar">{initials}</span>
+              <span className="head-user-info">
+                <span className="head-user-name">{firstName}</span>
+                <span className="head-user-team">{userEmail}</span>
+              </span>
+            </a>
+
+            <LogoutButton />
+          </div>
+
         </div>
       </header>
 
-      <section style={styles.hero}>
-        <div style={styles.heroGreeting}>
-          <div style={styles.kicker}>Корпоративный магазин · Uzum</div>
+      {/* ── CATALOG BODY ────────────────────────────────────────────────── */}
+      <div className="catalog">
 
-          <h1 style={styles.display}>
-            Привет, {firstName}.<br />
-            <span style={styles.displayAccent}>Что-нибудь</span> подберём?
-          </h1>
-
-          <p style={styles.lead}>
-            Здесь корпоративный мерч, канцелярия и подарочные наборы. Выберите
-            товары и оформите заявку на получение.
-          </p>
-
-          <div style={styles.heroActions}>
-            <button
-              type="button"
-              style={styles.primaryButton}
-              onClick={() => {
-                document
-                  .getElementById('catalog-grid')
-                  ?.scrollIntoView({ behavior: 'smooth' })
-              }}
-            >
-              Посмотреть каталог ↓
-            </button>
-
-            <a href="/orders" style={styles.ghostButton}>
-              Мои заказы →
-            </a>
-          </div>
-        </div>
-
-        <aside style={styles.profileMini}>
-          <div style={styles.profileTop}>
-            <span style={styles.kicker}>Профиль</span>
-
-            <div style={styles.avatar}>{getInitials(userEmail)}</div>
-          </div>
-
-          <div style={styles.profileRows}>
-            <ProfileRow label="Email" value={userEmail || 'Не указан'} />
-            <ProfileRow label="Получение" value={deliveryLabels[deliveryType]} />
-            <ProfileRow
-              label="Адрес"
-              value={deliveryAddress || 'Заполните в профиле'}
-            />
-          </div>
-
-          <div style={styles.profileHint}>
-            Данные можно изменить перед оформлением заказа.
-          </div>
-        </aside>
-      </section>
-
-      <nav style={styles.catNav} aria-label="Категории">
-        {categories.map((category) => (
-          <button
-            key={category}
-            type="button"
-            style={{
-              ...styles.catPill,
-              ...(selectedCategory === category ? styles.catPillActive : {}),
-            }}
-            onClick={() => setSelectedCategory(category)}
-          >
-            {category}
-          </button>
-        ))}
-      </nav>
-
-      <section style={styles.catalogBody}>
-        <aside style={styles.filters}>
-          <div style={styles.filtersBlock}>
-            <label style={styles.filtersLabel}>Поиск</label>
-
-            <input
-              style={styles.filtersInput}
-              placeholder="Худи, шоппер, блокнот…"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-
-          <div style={styles.filtersNote}>
-            <div style={styles.kicker}>Правило</div>
-            <p style={styles.filtersText}>
-              Один товар можно заказать только в количестве одной штуки.
+        {/* Hero */}
+        <section className="hero">
+          <div className="hero-greeting">
+            <span className="kicker">Корпоративный магазин · uzum</span>
+            <h1 className="display" style={{ marginTop: '12px' }}>
+              Привет, {firstName}.<br />
+              <em>Что-нибудь</em> подберём?
+            </h1>
+            <p className="lead">
+              Здесь корпоративный мерч, канцелярия и подарочные наборы.
+              Бесплатно — нужно только оставить заявку.{' '}
+              Один товар можно заказать <b>в количестве одной штуки</b>.
             </p>
-          </div>
-
-          <div style={styles.filtersNote}>
-            <div style={styles.kicker}>Каталог</div>
-            <p style={styles.filtersText}>
-              Сейчас доступно {products.length} товаров в {categoryCount}{' '}
-              {decline(categoryCount, ['категории', 'категориях', 'категориях'])}.
-            </p>
-          </div>
-        </aside>
-
-        <main style={styles.gridWrap}>
-          <div style={styles.gridHead}>
-            <div style={styles.gridCount}>
-              <span style={styles.num}>{filteredProducts.length}</span>{' '}
-              {decline(filteredProducts.length, [
-                'товар',
-                'товара',
-                'товаров',
-              ])}
-            </div>
-
-            <div style={styles.gridSort}>
-              <span style={styles.kicker}>Сортировка</span>
-
-              <select style={styles.sortSelect} defaultValue="rec">
-                <option value="rec">Рекомендуем</option>
-                <option value="abc">По алфавиту</option>
-              </select>
+            <div className="hero-actions">
+              <button
+                type="button"
+                className="btn btn-accent btn-lg"
+                onClick={() =>
+                  document.getElementById('catalog-grid')
+                    ?.scrollIntoView({ behavior: 'smooth' })
+                }
+              >
+                Посмотреть каталог ↓
+              </button>
+              <a href="/orders" className="btn btn-ghost btn-lg">
+                Мои заказы →
+              </a>
             </div>
           </div>
 
-          <div id="catalog-grid" style={styles.layout}>
-            <div style={styles.grid}>
-              {filteredProducts.length === 0 ? (
-                <div style={styles.empty}>
-                  <div style={styles.emptyMark}>∅</div>
-                  <h3 style={styles.emptyTitle}>Товары не найдены</h3>
-                  <p style={styles.emptyText}>
-                    Сбросьте поиск или выберите другую категорию.
-                  </p>
+          <aside className="hero-quota">
+            <span className="kicker">Профиль</span>
+            <div className="profile-mini">
+              <div className="profile-mini-row">
+                <span>ФИО</span>
+                <b>{userName || '—'}</b>
+              </div>
+              <div className="profile-mini-row">
+                <span>Email</span>
+                <b>{userEmail || '—'}</b>
+              </div>
+              {userDepartment && (
+                <div className="profile-mini-row">
+                  <span>Отдел</span>
+                  <b>{userDepartment}</b>
                 </div>
-              ) : (
-                filteredProducts.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    isInCart={isProductInCart(product.id)}
-                    onAddToCart={addToCart}
-                  />
-                ))
               )}
+              <div className="profile-mini-row">
+                <span>Город / офис</span>
+                <b>{deliveryAddress || '—'}</b>
+              </div>
+            </div>
+            <p className="quota-hint">
+              Доставка по умолчанию — в офис. Изменить можно при оформлении заказа.
+            </p>
+          </aside>
+        </section>
+
+        {/* Category nav */}
+        <nav className="cat-nav" aria-label="Категории">
+          {categories.map(cat => (
+            <button
+              key={cat}
+              type="button"
+              className={`cat-pill${selectedCategory === cat ? ' is-on' : ''}`}
+              onClick={() => setSelectedCategory(cat)}
+            >
+              {cat}
+            </button>
+          ))}
+        </nav>
+
+        {/* Catalog body: filters + grid */}
+        <div className="catalog-body">
+
+          {/* Filters sidebar */}
+          <aside className="filters">
+            <div className="filters-block">
+              <label className="filters-label" htmlFor="catalog-search">Поиск</label>
+              <input
+                id="catalog-search"
+                className="filters-input"
+                placeholder="Худи, шоппер, блокнот…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
             </div>
 
-            <CartAside
-              cart={cart}
-              totalQty={totalQty}
-              deliveryType={deliveryType}
-              deliveryAddress={deliveryAddress}
-              phone={phone}
-              comment={comment}
-              isSubmitting={isSubmitting}
-              checkoutError={checkoutError}
-              checkoutSuccess={checkoutSuccess}
-              onRemove={removeFromCart}
-              onDeliveryTypeChange={setDeliveryType}
-              onDeliveryAddressChange={setDeliveryAddress}
-              onPhoneChange={setPhone}
-              onCommentChange={setComment}
-              onCheckout={handleCheckout}
-            />
-          </div>
-        </main>
-      </section>
-    </main>
+            <div className="filters-note">
+              <span className="kicker">Правила</span>
+              <p>Один товар = одна штука. Нельзя заказать несколько единиц или несколько вариантов одного товара.</p>
+            </div>
+
+            <div className="filters-note">
+              <span className="kicker">Каталог</span>
+              <p>
+                Сейчас доступно {products.length}{' '}
+                {decline(products.length, ['товар', 'товара', 'товаров'])} в{' '}
+                {categoryCount}{' '}
+                {decline(categoryCount, ['категории', 'категориях', 'категориях'])}.
+              </p>
+            </div>
+          </aside>
+
+          {/* Grid area */}
+          <main className="grid-wrap">
+            <div className="grid-head">
+              <div className="grid-count">
+                <span className="num">{filteredProducts.length}</span>{' '}
+                {decline(filteredProducts.length, ['товар', 'товара', 'товаров'])}
+              </div>
+              <div className="grid-sort">
+                <span className="kicker">Сортировка</span>
+                <select
+                  className="sort-select"
+                  value={sortMode}
+                  onChange={e => setSortMode(e.target.value as SortMode)}
+                >
+                  <option value="rec">Рекомендуем</option>
+                  <option value="abc">По алфавиту</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="catalog-grid" className="grid-layout">
+              <div className="grid grid-cols">
+                {filteredProducts.length === 0 ? (
+                  <div className="empty" style={{ gridColumn: '1 / -1' }}>
+                    <div className="empty-mark">∅</div>
+                    <h3>Товары не найдены</h3>
+                    <p>Сбросьте поиск или выберите другую категорию.</p>
+                  </div>
+                ) : (
+                  filteredProducts.map(product => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      isInCart={isProductInCart(product.id)}
+                      onAddToCart={addToCart}
+                    />
+                  ))
+                )}
+              </div>
+
+              <CartAside
+                cart={cart}
+                totalQty={totalQty}
+                deliveryType={deliveryType}
+                deliveryAddress={deliveryAddress}
+                phone={phone}
+                comment={comment}
+                isSubmitting={isSubmitting}
+                checkoutError={checkoutError}
+                checkoutSuccess={checkoutSuccess}
+                onRemove={removeFromCart}
+                onDeliveryTypeChange={setDeliveryType}
+                onDeliveryAddressChange={setDeliveryAddress}
+                onPhoneChange={setPhone}
+                onCommentChange={setComment}
+                onCheckout={handleCheckout}
+              />
+            </div>
+          </main>
+
+        </div>{/* /catalog-body */}
+      </div>{/* /catalog */}
+    </div>
   )
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  ProductCard                                                                 */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 function ProductCard({
   product,
@@ -416,80 +435,63 @@ function ProductCard({
   )
 
   const selectedVariant =
-    product.variants.find((variant) => variant.id === selectedVariantId) ??
+    product.variants.find(v => v.id === selectedVariantId) ??
     product.variants[0]
 
   const imageUrl = product.image_url || product.images?.[0] || ''
   const hasMultipleVariants = product.variants.length > 1
 
+  const totalAvail  = product.variants.reduce((s, v) => s + v.available_qty, 0)
+  const stockClass  = totalAvail > 4 ? 'card-stock-ok' : totalAvail > 0 ? 'card-stock-low' : 'card-stock-out'
+  const stockText   = totalAvail > 0 ? `${totalAvail} шт.` : 'Нет в наличии'
+
+  const canAdd = !isInCart && !!selectedVariant && selectedVariant.available_qty > 0
+
   return (
-    <article style={styles.card}>
-      <div style={styles.cardArt}>
+    <article className="card">
+      <div className="card-art">
         {imageUrl ? (
-          <img src={imageUrl} alt={product.name} style={styles.productImage} />
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt={product.name} />
         ) : (
-          <div style={styles.productArtPlaceholder}>
-            <div style={styles.productArtShape}>{getProductLetter(product.name)}</div>
+          <div className="card-art-placeholder">
+            <div className="card-art-letter">{getProductLetter(product.name)}</div>
           </div>
         )}
-
-        {isInCart && <span style={styles.cardBadgeCart}>В корзине</span>}
+        {isInCart && <span className="card-badge card-badge-cart">В корзине</span>}
       </div>
 
-      <div style={styles.cardBody}>
-        <div style={styles.cardTop}>
-          <span style={styles.cardKind}>
-            {product.category_name || 'Мерч'}
-          </span>
-
-          <span style={styles.cardVariants}>
-            {product.variants.length}{' '}
-            {decline(product.variants.length, [
-              'вариант',
-              'варианта',
-              'вариантов',
-            ])}
-          </span>
+      <div className="card-body">
+        <div className="card-top">
+          <span className="card-kind">{product.category_name || 'Мерч'}</span>
+          <span className={`card-stock ${stockClass}`}>{stockText}</span>
         </div>
 
-        <h3 style={styles.cardName}>{product.name}</h3>
+        <h3 className="card-name">{product.name}</h3>
 
-        <p style={styles.cardDescription}>
-          {product.description || 'Описание товара пока не заполнено.'}
-        </p>
-
-        {product.material && (
-          <div style={styles.cardMeta}>
-            <span style={styles.metaChip}>Материал: {product.material}</span>
-          </div>
+        {product.description && (
+          <p className="card-desc">{product.description}</p>
         )}
 
-        <label style={styles.variantLabel}>
-          {hasMultipleVariants ? 'Выберите вариант' : 'Вариант'}
+        <label className="variant-label">
+          {hasMultipleVariants ? 'Вариант' : 'Размер'}
           <select
+            className="variant-select"
             value={selectedVariantId}
-            onChange={(event) => setSelectedVariantId(event.target.value)}
-            style={styles.variantSelect}
+            onChange={e => setSelectedVariantId(e.target.value)}
             disabled={isInCart}
           >
-            {product.variants.map((variant) => (
-              <option key={variant.id} value={variant.id}>
-                {formatVariant(variant)}
-              </option>
+            {product.variants.map(v => (
+              <option key={v.id} value={v.id}>{formatVariant(v)}</option>
             ))}
           </select>
         </label>
 
         <button
           type="button"
-          style={{
-            ...styles.cardButton,
-            ...(isInCart || !selectedVariant || selectedVariant.available_qty <= 0
-              ? styles.cardButtonDisabled
-              : {}),
-          }}
-          disabled={isInCart || !selectedVariant || selectedVariant.available_qty <= 0}
-          onClick={() => onAddToCart(product, selectedVariant)}
+          className={`card-btn${isInCart ? ' in-cart' : ''}`}
+          disabled={!canAdd}
+          onClick={() => selectedVariant && onAddToCart(product, selectedVariant)}
         >
           {isInCart ? 'Уже в корзине' : 'Добавить'}
         </button>
@@ -497,6 +499,10 @@ function ProductCard({
     </article>
   )
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  CartAside                                                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 function CartAside({
   cart,
@@ -532,50 +538,44 @@ function CartAside({
   onCheckout: () => void
 }) {
   return (
-    <aside style={styles.cart}>
-      <div style={styles.cartHeader}>
+    <aside className="cart-aside" id="cart-aside">
+      <div className="cart-header">
         <div>
-          <div style={styles.asideTitle}>Корзина</div>
-
-          <p style={styles.asideSubtitle}>
+          <p className="aside-title" style={{ marginBottom: 4 }}>Корзина</p>
+          <p style={{ margin: 0, color: 'var(--inkMute)', fontSize: '13px' }}>
             {cart.length > 0
-              ? `${cart.length} ${decline(cart.length, [
-                  'товар',
-                  'товара',
-                  'товаров',
-                ])}`
+              ? `${cart.length} ${decline(cart.length, ['товар', 'товара', 'товаров'])}`
               : 'Пока пусто'}
           </p>
         </div>
-
-        <div style={styles.cartCounter}>{totalQty}</div>
+        <span className="cart-counter">{totalQty}</span>
       </div>
 
-      {checkoutSuccess && (
-        <CheckoutSuccessCard message={checkoutSuccess} />
-      )}
+      {checkoutSuccess && <CheckoutSuccessCard message={checkoutSuccess} />}
 
       {cart.length === 0 ? (
-        <div style={styles.cartEmpty}>
-          <div style={styles.cartEmptyMark}>+</div>
-          <p style={styles.cartEmptyText}>
+        <div className="cart-empty">
+          <div className="cart-empty-mark">+</div>
+          <p style={{ margin: 0, color: 'var(--inkMute)', fontSize: '14px', lineHeight: 1.45 }}>
             Добавьте товары из каталога, чтобы оформить заявку.
           </p>
         </div>
       ) : (
         <>
-          <div style={styles.cartLines}>
-            {cart.map((item) => (
-              <div key={item.variant.id} style={styles.cartLine}>
-                <div style={styles.cartLineInfo}>
+          <div className="cart-lines">
+            {cart.map(item => (
+              <div key={item.variant.id} className="cart-line">
+                <div className="cart-line-info">
                   <b>{item.product.name}</b>
-                  <span>{formatVariant(item.variant)} · 1 шт.</span>
+                  <span style={{ color: 'var(--inkMute)', fontSize: '13px' }}>
+                    {formatVariant(item.variant)} · 1 шт.
+                  </span>
                 </div>
-
                 <button
                   type="button"
-                  style={styles.removeButton}
+                  className="cart-line-remove"
                   onClick={() => onRemove(item.variant.id)}
+                  aria-label={`Удалить ${item.product.name}`}
                 >
                   ×
                 </button>
@@ -583,21 +583,19 @@ function CartAside({
             ))}
           </div>
 
-          <div style={styles.cartSummary}>
-            <SummaryRow label="Товаров" value={String(cart.length)} />
-            <SummaryRow label="Количество" value={`${cart.length} шт.`} />
-            <SummaryRow label="Получение" value={deliveryLabels[deliveryType]} />
+          <div className="cart-summary">
+            <div className="sum-row"><span>Товаров</span><b>{cart.length}</b></div>
+            <div className="sum-row"><span>Количество</span><b>{cart.length} шт.</b></div>
+            <div className="sum-row"><span>Получение</span><b>{deliveryLabels[deliveryType]}</b></div>
           </div>
 
-          <div style={styles.checkoutForm}>
-            <label style={styles.checkoutLabel}>
+          <div className="cart-form">
+            <label className="form-label">
               Способ получения
               <select
+                className="form-select"
                 value={deliveryType}
-                onChange={(event) =>
-                  onDeliveryTypeChange(event.target.value as DeliveryType)
-                }
-                style={styles.checkoutInput}
+                onChange={e => onDeliveryTypeChange(e.target.value as DeliveryType)}
               >
                 <option value="office">В офис</option>
                 <option value="pvz">ПВЗ / филиал</option>
@@ -606,54 +604,49 @@ function CartAside({
               </select>
             </label>
 
-            <label style={styles.checkoutLabel}>
+            <label className="form-label">
               Адрес / офис / точка получения
               <input
                 type="text"
+                className="form-input"
                 value={deliveryAddress}
-                onChange={(event) =>
-                  onDeliveryAddressChange(event.target.value)
-                }
+                onChange={e => onDeliveryAddressChange(e.target.value)}
                 placeholder="Например: Ташкент, офис Сергели"
-                style={styles.checkoutInput}
               />
             </label>
 
-            <label style={styles.checkoutLabel}>
+            <label className="form-label">
               Телефон
               <input
                 type="tel"
+                className="form-input"
                 value={phone}
-                onChange={(event) => onPhoneChange(event.target.value)}
+                onChange={e => onPhoneChange(e.target.value)}
                 placeholder="+998..."
-                style={styles.checkoutInput}
               />
             </label>
 
-            <label style={styles.checkoutLabel}>
+            <label className="form-label">
               Комментарий
               <textarea
+                className="form-textarea"
                 value={comment}
-                onChange={(event) => onCommentChange(event.target.value)}
+                onChange={e => onCommentChange(e.target.value)}
                 placeholder="Комментарий к заказу"
-                style={styles.checkoutTextarea}
               />
             </label>
 
             {checkoutError && (
-              <div style={styles.checkoutError}>{checkoutError}</div>
+              <div className="form-error">{checkoutError}</div>
             )}
 
             <button
               type="button"
-              style={{
-                ...styles.checkoutButton,
-                ...(isSubmitting ? styles.checkoutButtonDisabled : {}),
-              }}
+              className="checkout-btn"
               disabled={isSubmitting}
               onClick={onCheckout}
             >
-              {isSubmitting ? 'Оформляем...' : 'Оформить заказ'}
+              {isSubmitting ? 'Оформляем…' : 'Оформить заказ'}
             </button>
           </div>
         </>
@@ -661,849 +654,110 @@ function CartAside({
     </aside>
   )
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  CheckoutSuccessCard                                                         */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 function CheckoutSuccessCard({ message }: { message: string }) {
   return (
-    <div style={styles.confirmCard}>
-      <div style={styles.confirmIcon}>✓</div>
-
-      <div style={styles.confirmContent}>
-        <div style={styles.confirmKicker}>Заявка оформлена</div>
-
-        <h3 style={styles.confirmTitle}>{message}</h3>
-
-        <p style={styles.confirmText}>
-          Мы сохранили вашу заявку. Статус обработки можно отслеживать в разделе
-          “Мои заказы”.
+    <div className="confirm-card">
+      <div className="confirm-icon">✓</div>
+      <div>
+        <div className="confirm-kicker">Заявка оформлена</div>
+        <h3 className="confirm-title">{message}</h3>
+        <p className="confirm-text">
+          Мы сохранили вашу заявку. Статус обработки можно отслеживать в разделе «Мои заказы».
         </p>
-
-        <div style={styles.confirmActions}>
-          <a href="/orders" style={styles.confirmPrimaryLink}>
-            Перейти в мои заказы
-          </a>
-
-          <a href="#catalog-grid" style={styles.confirmGhostLink}>
-            Продолжить выбор
-          </a>
+        <div className="confirm-actions">
+          <a href="/orders" className="confirm-primary-link">Перейти в мои заказы</a>
+          <a href="#catalog-grid" className="confirm-ghost-link">Продолжить выбор</a>
         </div>
       </div>
     </div>
   )
 }
-function ProfileRow({ label, value }: { label: string; value: string }) {
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  LogoutButton                                                                */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function LogoutButton() {
+  const [loggingOut, setLoggingOut] = useState(false)
+
+  async function handleLogout() {
+    setLoggingOut(true)
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } finally {
+      window.location.href = '/login'
+    }
+  }
+
   return (
-    <div style={styles.profileRow}>
-      <span>{label}</span>
-      <b>{value}</b>
-    </div>
+    <button
+      type="button"
+      disabled={loggingOut}
+      onClick={handleLogout}
+      className="logout-btn"
+    >
+      {loggingOut ? 'Выходим…' : 'Выйти'}
+    </button>
   )
 }
 
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={styles.summaryRow}>
-      <span>{label}</span>
-      <b>{value}</b>
-    </div>
-  )
-}
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  Helper functions                                                            */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 function formatVariant(variant: CatalogVariant) {
-  const size = variant.size || 'ONE SIZE'
+  const size  = variant.size  || 'ONE SIZE'
   const color = variant.color || 'Без цвета'
-
   return `${size} · ${color}`
 }
 
-function getUserName(email: string | null) {
-  if (!email) {
-    return 'коллега'
+function getUserFirstName(fullName: string | null, email: string | null): string {
+  const cleaned = fullName?.trim()
+  if (cleaned) {
+    const parts = cleaned.split(/\s+/).filter(Boolean)
+    // ФИО = Фамилия Имя Отчество — берём второе слово как имя
+    if (parts.length >= 2) return parts[1]!
+    return parts[0] || 'коллега'
   }
-
-  const localPart = email.split('@')[0] ?? 'коллега'
-
-  return localPart
-    .split(/[._-]/)
-    .filter(Boolean)[0]
-    ?.replace(/^./, (letter) => letter.toUpperCase()) ?? 'коллега'
+  if (!email) return 'коллега'
+  const local = email.split('@')[0] ?? 'коллега'
+  return (
+    local.split(/[._-]/).filter(Boolean)[0]
+      ?.replace(/^./, l => l.toUpperCase()) ?? 'коллега'
+  )
 }
 
-function getInitials(email: string | null) {
-  if (!email) {
-    return 'U'
+function getInitials(fullName: string | null, email: string | null): string {
+  const cleaned = fullName?.trim()
+  if (cleaned) {
+    const parts = cleaned.split(/\s+/).filter(Boolean)
+    // Фамилия Имя → берём первые буквы фамилии и имени
+    const a = parts[0]?.[0] ?? ''
+    const b = parts[1]?.[0] ?? ''
+    const result = `${a}${b}`.toUpperCase()
+    if (result) return result
   }
-
-  const localPart = email.split('@')[0] ?? 'U'
-  const parts = localPart.split(/[._-]/).filter(Boolean)
-
-  const first = parts[0]?.[0] ?? 'U'
-  const second = parts[1]?.[0] ?? ''
-
-  return `${first}${second}`.toUpperCase()
+  if (!email) return 'U'
+  const local = email.split('@')[0] ?? 'U'
+  const parts  = local.split(/[._-]/).filter(Boolean)
+  const a = parts[0]?.[0] ?? 'U'
+  const b = parts[1]?.[0] ?? ''
+  return `${a}${b}`.toUpperCase()
 }
 
-function getProductLetter(name: string) {
-  return name.trim()[0]?.toUpperCase() ?? 'U'
-}
-
-function decline(count: number, words: [string, string, string]) {
-  const abs = Math.abs(count) % 100
-  const last = abs % 10
-
-  if (abs > 10 && abs < 20) {
-    return words[2]
-  }
-
-  if (last > 1 && last < 5) {
-    return words[1]
-  }
-
-  if (last === 1) {
-    return words[0]
-  }
-
-  return words[2]
-}
-
-const styles: Record<string, CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    background: 'var(--bg)',
-  },
-
-  siteHead: {
-    position: 'sticky',
-    top: 0,
-    zIndex: 50,
-    background: 'rgba(255,255,255,0.86)',
-    backdropFilter: 'blur(14px) saturate(140%)',
-    borderBottom: '1px solid var(--border)',
-  },
-  headInner: {
-    maxWidth: '1320px',
-    margin: '0 auto',
-    padding: '14px 48px',
-    display: 'grid',
-    gridTemplateColumns: 'auto 1fr',
-    gap: '24px',
-    alignItems: 'center',
-  },
-  brand: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '12px',
-    color: 'var(--ink)',
-  },
-  logo: {
-    width: '32px',
-    height: '32px',
-    objectFit: 'contain',
-  },
-  brandName: {
-    fontFamily: 'var(--font-display)',
-    fontWeight: 700,
-    fontSize: '20px',
-    letterSpacing: '-0.02em',
-    lineHeight: 1,
-    whiteSpace: 'nowrap',
-  },
-  brandNameSoft: {
-    color: 'var(--inkMute)',
-    fontWeight: 500,
-  },
-  brandSub: {
-    color: 'var(--inkMute)',
-    fontSize: '12px',
-    borderLeft: '1px solid var(--border)',
-    paddingLeft: '10px',
-    marginLeft: '2px',
-    whiteSpace: 'nowrap',
-  },
-
-  hero: {
-    maxWidth: '1320px',
-    margin: '0 auto',
-    padding: '64px 48px 28px',
-    display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) 360px',
-    gap: '28px',
-    alignItems: 'stretch',
-  },
-  heroGreeting: {
-    background:
-      'radial-gradient(circle at 18% 10%, rgba(112,0,255,0.12), transparent 34%), var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    padding: '34px',
-    boxShadow: 'var(--shadow-card)',
-  },
-  kicker: {
-    fontSize: '11px',
-    fontWeight: 700,
-    letterSpacing: '0.12em',
-    textTransform: 'uppercase',
-    color: 'var(--inkMute)',
-    display: 'inline-block',
-  },
-  display: {
-    fontFamily: 'var(--font-display)',
-    fontWeight: 700,
-    fontSize: 'clamp(40px, 5vw, 72px)',
-    lineHeight: 1.02,
-    letterSpacing: '-0.025em',
-    margin: '12px 0 20px',
-    color: 'var(--ink)',
-  },
-  displayAccent: {
-    color: 'var(--accent)',
-  },
-  lead: {
-    fontSize: '17px',
-    color: 'var(--inkMute)',
-    maxWidth: '64ch',
-    margin: '0 0 24px',
-    lineHeight: 1.55,
-  },
-  heroActions: {
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap',
-  },
-  primaryButton: {
-    border: 0,
-    background: 'var(--accent)',
-    color: 'var(--accentInk)',
-    borderRadius: 'var(--r-pill)',
-    padding: '12px 18px',
-    fontWeight: 800,
-    cursor: 'pointer',
-    boxShadow: '0 12px 26px rgba(112,0,255,0.18)',
-  },
-  ghostButton: {
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--ink)',
-    borderRadius: 'var(--r-pill)',
-    padding: '12px 18px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-
-  profileMini: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    padding: '20px',
-    boxShadow: 'var(--shadow-card)',
-  },
-  profileTop: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '12px',
-    marginBottom: '14px',
-  },
-  avatar: {
-    width: '42px',
-    height: '42px',
-    borderRadius: '50%',
-    background: 'var(--accent)',
-    color: 'var(--accentInk)',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 800,
-    fontSize: '13px',
-  },
-  profileRows: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  profileRow: {
-    display: 'grid',
-    gridTemplateColumns: '88px minmax(0, 1fr)',
-    gap: '12px',
-    alignItems: 'start',
-    padding: '10px 0',
-    borderBottom: '1px solid var(--border)',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-  },
-  profileHint: {
-    marginTop: '14px',
-    borderRadius: 'var(--r-md)',
-    background: 'var(--chip)',
-    color: 'var(--inkMute)',
-    padding: '12px',
-    fontSize: '13px',
-    lineHeight: 1.45,
-  },
-
-  catNav: {
-    maxWidth: '1320px',
-    margin: '0 auto',
-    padding: '0 48px 22px',
-    display: 'flex',
-    gap: '8px',
-    flexWrap: 'wrap',
-  },
-  catPill: {
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--inkMute)',
-    borderRadius: 'var(--r-pill)',
-    padding: '10px 15px',
-    fontSize: '14px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  catPillActive: {
-    background: 'var(--accent)',
-    color: 'var(--accentInk)',
-    borderColor: 'var(--accent)',
-  },
-
-  catalogBody: {
-    maxWidth: '1320px',
-    margin: '0 auto',
-    padding: '0 48px',
-    display: 'grid',
-    gridTemplateColumns: '260px minmax(0, 1fr)',
-    gap: '24px',
-    alignItems: 'start',
-  },
-  filters: {
-    position: 'sticky',
-    top: '92px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-  },
-  filtersBlock: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    padding: '16px',
-    boxShadow: 'var(--shadow-soft)',
-  },
-  filtersLabel: {
-    display: 'block',
-    marginBottom: '8px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 800,
-  },
-  filtersInput: {
-    width: '100%',
-    height: '42px',
-    borderRadius: 'var(--r-md)',
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--ink)',
-    padding: '0 12px',
-    fontSize: '14px',
-    fontWeight: 600,
-  },
-  filtersNote: {
-    background: 'var(--surfaceAlt)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    padding: '16px',
-  },
-  filtersText: {
-    margin: '8px 0 0',
-    color: 'var(--inkMute)',
-    fontSize: '14px',
-    lineHeight: 1.5,
-  },
-
-  gridWrap: {
-    minWidth: 0,
-  },
-  gridHead: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '14px',
-    marginBottom: '16px',
-  },
-  gridCount: {
-    color: 'var(--inkMute)',
-    fontSize: '15px',
-    fontWeight: 700,
-  },
-  num: {
-    fontFamily: 'var(--font-display)',
-    fontSize: '32px',
-    fontWeight: 700,
-    color: 'var(--ink)',
-  },
-  gridSort: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-  },
-  sortSelect: {
-    height: '38px',
-    borderRadius: 'var(--r-pill)',
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--ink)',
-    padding: '0 12px',
-    fontSize: '14px',
-    fontWeight: 700,
-  },
-  layout: {
-    display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) 330px',
-    gap: '20px',
-    alignItems: 'start',
-  },
-  grid: {
-    minWidth: 0,
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(245px, 1fr))',
-    gap: '18px',
-  },
-
-  card: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    overflow: 'hidden',
-    boxShadow: 'var(--shadow-card)',
-  },
-  cardArt: {
-    position: 'relative',
-    height: '220px',
-    background: 'var(--surfaceAlt)',
-    overflow: 'hidden',
-  },
-  productImage: {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-  },
-  productArtPlaceholder: {
-    width: '100%',
-    height: '100%',
-    background:
-      'radial-gradient(circle at 25% 12%, rgba(112,0,255,0.15), transparent 30%), linear-gradient(135deg, var(--chip) 0%, var(--surface) 100%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  productArtShape: {
-    width: '92px',
-    height: '92px',
-    borderRadius: '28px',
-    background: 'var(--accent)',
-    color: 'var(--accentInk)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: 'var(--font-display)',
-    fontSize: '42px',
-    fontWeight: 800,
-    boxShadow: '0 18px 40px rgba(112,0,255,0.2)',
-  },
-  cardBadgeCart: {
-    position: 'absolute',
-    left: '12px',
-    top: '12px',
-    background: 'var(--accent)',
-    color: 'var(--accentInk)',
-    borderRadius: 'var(--r-pill)',
-    padding: '7px 11px',
-    fontSize: '12px',
-    fontWeight: 800,
-  },
-  cardBody: {
-    padding: '16px',
-  },
-  cardTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '10px',
-    alignItems: 'center',
-    marginBottom: '8px',
-  },
-  cardKind: {
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 800,
-  },
-  cardVariants: {
-    color: 'var(--inkMute)',
-    background: 'var(--chip)',
-    borderRadius: 'var(--r-pill)',
-    padding: '5px 9px',
-    fontSize: '12px',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-  },
-  cardName: {
-    fontFamily: 'var(--font-display)',
-    fontWeight: 700,
-    fontSize: '22px',
-    lineHeight: 1.12,
-    letterSpacing: '-0.02em',
-    color: 'var(--ink)',
-    margin: '0 0 8px',
-  },
-  cardDescription: {
-    minHeight: '44px',
-    margin: '0 0 12px',
-    color: 'var(--inkMute)',
-    fontSize: '14px',
-    lineHeight: 1.45,
-  },
-  cardMeta: {
-    display: 'flex',
-    gap: '8px',
-    flexWrap: 'wrap',
-    marginBottom: '12px',
-  },
-  metaChip: {
-    borderRadius: 'var(--r-pill)',
-    background: 'var(--chip)',
-    color: 'var(--inkMute)',
-    padding: '6px 9px',
-    fontSize: '12px',
-    fontWeight: 800,
-  },
-  variantLabel: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '7px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 800,
-  },
-  variantSelect: {
-    height: '42px',
-    borderRadius: 'var(--r-md)',
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--ink)',
-    padding: '0 12px',
-    fontWeight: 700,
-  },
-  cardButton: {
-    width: '100%',
-    height: '44px',
-    marginTop: '12px',
-    borderRadius: 'var(--r-pill)',
-    border: 0,
-    background: 'var(--accent)',
-    color: 'var(--accentInk)',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  cardButtonDisabled: {
-    background: '#9ca3af',
-    cursor: 'not-allowed',
-  },
-
-  cart: {
-    position: 'sticky',
-    top: '92px',
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    padding: '16px',
-    boxShadow: 'var(--shadow-card)',
-  },
-  cartHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '14px',
-    alignItems: 'flex-start',
-    marginBottom: '14px',
-  },
-  asideTitle: {
-    fontFamily: 'var(--font-display)',
-    color: 'var(--ink)',
-    fontSize: '24px',
-    fontWeight: 700,
-    letterSpacing: '-0.02em',
-  },
-  asideSubtitle: {
-    margin: '4px 0 0',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 700,
-  },
-  cartCounter: {
-    minWidth: '36px',
-    height: '36px',
-    borderRadius: '50%',
-    background: 'var(--accent)',
-    color: 'var(--accentInk)',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 800,
-  },
-  cartEmpty: {
-    borderRadius: 'var(--r-card)',
-    background: 'var(--surfaceAlt)',
-    border: '1px dashed var(--border-strong)',
-    padding: '20px',
-    textAlign: 'center',
-  },
-  cartEmptyMark: {
-    width: '42px',
-    height: '42px',
-    borderRadius: '16px',
-    margin: '0 auto 10px',
-    background: 'var(--chip)',
-    color: 'var(--accent)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '24px',
-    fontWeight: 800,
-  },
-  cartEmptyText: {
-    margin: 0,
-    color: 'var(--inkMute)',
-    fontSize: '14px',
-    lineHeight: 1.45,
-  },
-  cartLines: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  cartLine: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '10px',
-    alignItems: 'flex-start',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-md)',
-    padding: '12px',
-  },
-  cartLineInfo: {
-    minWidth: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-    color: 'var(--ink)',
-    fontSize: '14px',
-  },
-  removeButton: {
-    width: '28px',
-    height: '28px',
-    borderRadius: '50%',
-    border: 0,
-    background: '#fff5f5',
-    color: '#d71920',
-    fontSize: '18px',
-    fontWeight: 800,
-    cursor: 'pointer',
-    flex: '0 0 auto',
-  },
-  cartSummary: {
-    marginTop: '12px',
-    padding: '12px',
-    borderRadius: 'var(--r-md)',
-    background: 'var(--surfaceAlt)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  },
-  summaryRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '10px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 700,
-  },
-  checkoutForm: {
-    marginTop: '14px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  checkoutLabel: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 800,
-  },
-  checkoutInput: {
-    height: '42px',
-    borderRadius: 'var(--r-md)',
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--ink)',
-    padding: '0 12px',
-    fontWeight: 700,
-  },
-  checkoutTextarea: {
-    minHeight: '76px',
-    borderRadius: 'var(--r-md)',
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--ink)',
-    padding: '10px 12px',
-    fontWeight: 700,
-    resize: 'vertical',
-  },
-  checkoutButton: {
-    height: '46px',
-    borderRadius: 'var(--r-pill)',
-    border: 0,
-    background: 'var(--accent)',
-    color: 'var(--accentInk)',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  checkoutButtonDisabled: {
-    background: '#9ca3af',
-    cursor: 'not-allowed',
-  },
-  checkoutError: {
-    background: '#fee2e2',
-    color: '#991b1b',
-    padding: '11px 12px',
-    borderRadius: 'var(--r-md)',
-    fontSize: '13px',
-    fontWeight: 800,
-    lineHeight: 1.45,
-  },
-  checkoutSuccess: {
-    background: '#dcfce7',
-    color: '#166534',
-    padding: '11px 12px',
-    borderRadius: 'var(--r-md)',
-    fontSize: '13px',
-    fontWeight: 800,
-    lineHeight: 1.45,
-    marginBottom: '12px',
-  },
-
-  empty: {
-    gridColumn: '1 / -1',
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    padding: '42px',
-    textAlign: 'center',
-    boxShadow: 'var(--shadow-card)',
-  },
-  emptyMark: {
-    width: '52px',
-    height: '52px',
-    borderRadius: '18px',
-    margin: '0 auto 12px',
-    background: 'var(--chip)',
-    color: 'var(--accent)',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '28px',
-    fontWeight: 800,
-  },
-  emptyTitle: {
-    margin: '0 0 6px',
-    fontFamily: 'var(--font-display)',
-    color: 'var(--ink)',
-    fontSize: '24px',
-    fontWeight: 700,
-  },
-  emptyText: {
-    margin: 0,
-    color: 'var(--inkMute)',
-    fontSize: '14px',
-  },
-    confirmCard: {
-    marginBottom: '14px',
-    display: 'grid',
-    gridTemplateColumns: '46px minmax(0, 1fr)',
-    gap: '12px',
-    padding: '14px',
-    borderRadius: 'var(--r-card)',
-    background:
-      'linear-gradient(135deg, rgba(220,252,231,0.98) 0%, rgba(240,253,244,0.98) 100%)',
-    border: '1px solid rgba(22,101,52,0.14)',
-    boxShadow: '0 12px 28px rgba(22,101,52,0.08)',
-  },
-  confirmIcon: {
-    width: '46px',
-    height: '46px',
-    borderRadius: '18px',
-    background: '#16a34a',
-    color: '#ffffff',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '24px',
-    fontWeight: 900,
-    boxShadow: '0 12px 24px rgba(22,101,52,0.22)',
-  },
-  confirmContent: {
-    minWidth: 0,
-  },
-  confirmKicker: {
-    color: '#166534',
-    fontSize: '11px',
-    fontWeight: 900,
-    textTransform: 'uppercase',
-    letterSpacing: '0.1em',
-    marginBottom: '5px',
-  },
-  confirmTitle: {
-    margin: 0,
-    color: '#14532d',
-    fontFamily: 'var(--font-display)',
-    fontSize: '20px',
-    lineHeight: 1.12,
-    letterSpacing: '-0.02em',
-    fontWeight: 800,
-  },
-  confirmText: {
-    margin: '8px 0 12px',
-    color: '#166534',
-    fontSize: '13px',
-    lineHeight: 1.45,
-    fontWeight: 700,
-  },
-  confirmActions: {
-    display: 'flex',
-    gap: '8px',
-    flexWrap: 'wrap',
-  },
-  confirmPrimaryLink: {
-    minHeight: '38px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 'var(--r-pill)',
-    padding: '0 13px',
-    background: '#16a34a',
-    color: '#ffffff',
-    fontSize: '13px',
-    fontWeight: 900,
-    textDecoration: 'none',
-  },
-  confirmGhostLink: {
-    minHeight: '38px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 'var(--r-pill)',
-    padding: '0 13px',
-    background: '#ffffff',
-    color: '#166534',
-    border: '1px solid rgba(22,101,52,0.16)',
-    fontSize: '13px',
-    fontWeight: 900,
-    textDecoration: 'none',
-  },
+function getCheckoutErrorMessage(error: string): string {
+  if (error.includes('product_already_ordered'))
+    return 'Один из выбранных товаров уже был заказан ранее. Повторный заказ недоступен.'
+  if (error.includes('one_unit_per_product_only'))
+    return 'Можно заказать только 1 единицу одного товара.'
+  if (error.includes('one_variant_per_product_only'))
+    return 'Нельзя выбрать несколько вариантов одного товара.'
+  if (error.includes('product_is_not_available'))
+    return 'Один из выбранных товаров сейчас недоступен для заказа.'
+  return error || 'Не удалось оформить заказ'
 }

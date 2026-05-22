@@ -1,245 +1,330 @@
-import LoginForm from './LoginForm'
-import type { CSSProperties } from 'react'
+'use client'
 
-type LoginPageProps = {
-  searchParams: Promise<{
-    error?: string
-    message?: string
-    description?: string
-  }>
+import { createClient } from '@/lib/supabase/client'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+
+type LoginMode = 'password' | 'email'
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
+  )
 }
 
-export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const params = await searchParams
+function LoginContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const supabase = useMemo(() => createClient(), [])
 
-  const error = params.error
-  const message = params.message
-  const description = params.description
+  const [mode, setMode] = useState<LoginMode>('password')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [sentEmail, setSentEmail] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const urlError = searchParams.get('error')
+  const urlDescription = searchParams.get('description')
+
+  useEffect(() => {
+    async function checkSession() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) {
+        return
+      }
+
+      const { data: employee } = await supabase
+        .from('employees')
+        .select('password_set_at')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      router.replace(employee?.password_set_at ? '/catalog' : '/set-password')
+    }
+
+    checkSession()
+  }, [router, supabase])
+
+  useEffect(() => {
+    if (urlError) {
+      setError(getUrlErrorMessage(urlError, urlDescription))
+    }
+  }, [urlError, urlDescription])
+
+  function switchMode(nextMode: LoginMode) {
+    setMode(nextMode)
+    setError(null)
+    setSentEmail(null)
+  }
+
+  async function handlePasswordSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail || !password) {
+      setError('Введите email и пароль')
+      return
+    }
+
+    setIsSubmitting(true)
+    setError(null)
+
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      })
+
+      if (signInError) {
+        setError(
+          'Не удалось войти по паролю. Если это первый вход, получите письмо.'
+        )
+        return
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (user) {
+        const { data: employee } = await supabase
+          .from('employees')
+          .select('password_set_at')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        router.replace(employee?.password_set_at ? '/catalog' : '/set-password')
+        return
+      }
+
+      router.replace('/catalog')
+    } catch (loginError) {
+      setError(
+        loginError instanceof Error ? loginError.message : 'Неизвестная ошибка'
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  async function handleEmailSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      setError('Введите корпоративный email')
+      return
+    }
+
+    setIsSubmitting(true)
+    setError(null)
+    setSentEmail(null)
+
+    try {
+      let redirectTo: string | undefined
+      if (typeof window !== 'undefined') {
+        redirectTo = `${window.location.origin}/auth/hash-callback`
+      }
+
+      const { error: signInError } = await supabase.auth.signInWithOtp({
+        email: normalizedEmail,
+        options: { emailRedirectTo: redirectTo },
+      })
+
+      if (signInError) {
+        setError(signInError.message || 'Не удалось отправить письмо')
+        return
+      }
+
+      setSentEmail(normalizedEmail)
+    } catch (sendError) {
+      setError(
+        sendError instanceof Error ? sendError.message : 'Неизвестная ошибка'
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
   return (
-    <main style={styles.page}>
-      <section style={styles.left}>
-        <div style={styles.logoMark}>U</div>
+    <main className="login-page">
+      <section className="login-shell">
+        <div className="login-left">
+          <a href="/login" className="login-brand">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/uzum-logo.svg" alt="Uzum" className="login-logo" />
+            <span className="login-brand-text">
+              uzum <span style={{ fontWeight: 400 }}>мерч</span>
+            </span>
+          </a>
 
-        <div>
-          <div style={styles.badge}>Внутренний мерч-магазин</div>
-
-          <h1 style={styles.heroTitle}>
-            Корпоративный мерч для сотрудников
-          </h1>
-
-          <p style={styles.heroText}>
-            Выбирайте доступные товары, оформляйте заявку и отслеживайте статус
-            выдачи в личном кабинете.
-          </p>
-        </div>
-
-        <div style={styles.features}>
-          <div style={styles.featureItem}>
-            <span style={styles.featureDot} />
-            Каталог с остатками и размерами
+          <div className="login-hero">
+            <div className="kicker">Внутренний портал</div>
+            <h1 className="login-title">
+              Корпоративный мерч<br />для сотрудников Uzum
+            </h1>
+            <p className="login-lead">
+              Первый вход подтвердите через письмо, создайте пароль и дальше
+              входите без ожидания ссылки.
+            </p>
           </div>
 
-          <div style={styles.featureItem}>
-            <span style={styles.featureDot} />
-            История заказов и статусы
-          </div>
-
-          <div style={styles.featureItem}>
-            <span style={styles.featureDot} />
-            Админка для склада и HR
+          <div className="login-steps">
+            <LoginStep value="1" label="Первый вход по email" />
+            <LoginStep value="2" label="Создание пароля" />
+            <LoginStep value="3" label="Быстрый вход" />
           </div>
         </div>
-      </section>
 
-      <section style={styles.right}>
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div style={styles.cardIcon}>→</div>
-
+        <section className="login-card">
+          <div className="login-card-top">
+            <div className="login-card-icon">↗</div>
             <div>
-              <h2 style={styles.title}>Вход</h2>
-
-              <p style={styles.subtitle}>
-                Введите корпоративный email. Мы отправим ссылку или код для
-                входа.
+              <h2 className="login-card-title">Вход</h2>
+              <p className="login-card-text">
+                Войдите по паролю или получите письмо для первого входа.
               </p>
             </div>
           </div>
 
-          {error === 'auth_failed' && (
-            <div style={styles.error}>
-              Не удалось выполнить вход.
-              {description ? ` ${description}` : ' Попробуйте запросить новую ссылку.'}
-            </div>
+          <div className="login-mode-tabs" role="tablist" aria-label="Способ входа">
+            <button
+              type="button"
+              className={`login-mode-tab${mode === 'password' ? ' is-active' : ''}`}
+              onClick={() => switchMode('password')}
+            >
+              Пароль
+            </button>
+            <button
+              type="button"
+              className={`login-mode-tab${mode === 'email' ? ' is-active' : ''}`}
+              onClick={() => switchMode('email')}
+            >
+              Письмо
+            </button>
+          </div>
+
+          {sentEmail ? (
+            <section className="login-success">
+              <div className="login-success-icon">✓</div>
+              <h3 className="login-success-title">Письмо отправлено</h3>
+              <p className="login-success-text">
+                Мы отправили ссылку для входа на адрес:
+              </p>
+              <div className="login-email-box">{sentEmail}</div>
+              <p className="login-success-hint">
+                Откройте письмо и перейдите по ссылке. После первого входа
+                приложение попросит создать пароль.
+              </p>
+              <button
+                type="button"
+                onClick={() => { setSentEmail(null); setError(null) }}
+                className="login-btn-secondary"
+              >
+                Отправить ещё раз
+              </button>
+            </section>
+          ) : mode === 'password' ? (
+            <form onSubmit={handlePasswordSubmit} className="login-form">
+              <label className="login-label">
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="name@uzum.com"
+                  autoComplete="email"
+                  className="login-input"
+                />
+              </label>
+
+              <label className="login-label">
+                Пароль
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  className="login-input"
+                />
+              </label>
+
+              {error && <div className="login-error">{error}</div>}
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="login-btn-primary"
+              >
+                {isSubmitting ? 'Входим...' : 'Войти'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => switchMode('email')}
+                className="login-btn-secondary"
+              >
+                Первый вход или забыли пароль?
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleEmailSubmit} className="login-form">
+              <label className="login-label">
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="name@uzum.com"
+                  autoComplete="email"
+                  className="login-input"
+                />
+              </label>
+
+              {error && <div className="login-error">{error}</div>}
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="login-btn-primary"
+              >
+                {isSubmitting ? 'Отправляем...' : 'Получить письмо'}
+              </button>
+            </form>
           )}
 
-          {message === 'check_email' && (
-            <div style={styles.success}>
-              Ссылка для входа отправлена на вашу почту.
-            </div>
-          )}
-
-          <LoginForm />
-        </div>
+          <div className="login-footer-note">
+            Пароль создаётся только после подтверждения доступа к корпоративной почте.
+          </div>
+        </section>
       </section>
     </main>
   )
 }
 
-const styles: Record<string, CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    display: 'grid',
-    gridTemplateColumns: '1fr 480px',
-    gap: '32px',
-    padding: '32px',
-    background:
-      'radial-gradient(circle at 10% 0%, rgba(124,58,237,0.22), transparent 30%), radial-gradient(circle at 90% 12%, rgba(236,72,153,0.15), transparent 26%), linear-gradient(135deg, #fbfaff 0%, #f6f3ff 48%, #f1edff 100%)',
-  },
-  left: {
-    minHeight: 'calc(100vh - 64px)',
-    borderRadius: '32px',
-    padding: '42px',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'space-between',
-    background:
-      'linear-gradient(135deg, rgba(109,40,217,0.96) 0%, rgba(91,33,182,0.94) 45%, rgba(76,29,149,0.96) 100%)',
-    color: '#ffffff',
-    boxShadow: '0 28px 90px rgba(76,29,149,0.28)',
-    overflow: 'hidden',
-  },
-  logoMark: {
-    width: '58px',
-    height: '58px',
-    borderRadius: '18px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'rgba(255,255,255,0.16)',
-    border: '1px solid rgba(255,255,255,0.22)',
-    color: '#ffffff',
-    fontSize: '28px',
-    fontWeight: 950,
-    boxShadow: '0 16px 40px rgba(0,0,0,0.18)',
-  },
-  badge: {
-    display: 'inline-flex',
-    width: 'fit-content',
-    borderRadius: '999px',
-    padding: '8px 13px',
-    background: 'rgba(255,255,255,0.14)',
-    color: '#f5f3ff',
-    fontSize: '13px',
-    fontWeight: 900,
-    marginBottom: '18px',
-  },
-  heroTitle: {
-    margin: 0,
-    maxWidth: '760px',
-    fontSize: 'clamp(38px, 5vw, 72px)',
-    lineHeight: 0.95,
-    letterSpacing: '-0.055em',
-    fontWeight: 950,
-  },
-  heroText: {
-    maxWidth: '640px',
-    margin: '22px 0 0',
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: '18px',
-    lineHeight: 1.6,
-  },
-  features: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-    gap: '12px',
-  },
-  featureItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    minHeight: '54px',
-    padding: '12px 14px',
-    borderRadius: '18px',
-    background: 'rgba(255,255,255,0.11)',
-    border: '1px solid rgba(255,255,255,0.13)',
-    color: 'rgba(255,255,255,0.86)',
-    fontSize: '14px',
-    fontWeight: 800,
-  },
-  featureDot: {
-    width: '9px',
-    height: '9px',
-    borderRadius: '50%',
-    background: '#c4b5fd',
-    boxShadow: '0 0 0 5px rgba(196,181,253,0.16)',
-    flex: '0 0 auto',
-  },
-  right: {
-    minHeight: 'calc(100vh - 64px)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  card: {
-    width: '100%',
-    maxWidth: '460px',
-    background: 'rgba(255,255,255,0.86)',
-    border: '1px solid rgba(109,40,217,0.14)',
-    borderRadius: '30px',
-    padding: '28px',
-    boxShadow: '0 24px 80px rgba(44,20,76,0.16)',
-    backdropFilter: 'blur(18px)',
-  },
-  cardHeader: {
-    display: 'flex',
-    gap: '14px',
-    alignItems: 'flex-start',
-    marginBottom: '22px',
-  },
-  cardIcon: {
-    width: '44px',
-    height: '44px',
-    borderRadius: '16px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: '#ede9fe',
-    color: '#6d28d9',
-    fontSize: '22px',
-    fontWeight: 950,
-  },
-  title: {
-    margin: 0,
-    color: '#18111f',
-    fontSize: '28px',
-    fontWeight: 950,
-    letterSpacing: '-0.03em',
-  },
-  subtitle: {
-    margin: '6px 0 0',
-    color: '#6b6078',
-    fontSize: '14px',
-    lineHeight: 1.55,
-  },
-  error: {
-    background: '#fee2e2',
-    color: '#991b1b',
-    padding: '12px',
-    borderRadius: '16px',
-    marginBottom: '16px',
-    fontSize: '14px',
-    fontWeight: 750,
-    lineHeight: 1.45,
-  },
-  success: {
-    background: '#dcfce7',
-    color: '#166534',
-    padding: '12px',
-    borderRadius: '16px',
-    marginBottom: '16px',
-    fontSize: '14px',
-    fontWeight: 750,
-  },
+function LoginStep({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="login-step">
+      <b>{value}</b>
+      <span>{label}</span>
+    </div>
+  )
+}
+
+function getUrlErrorMessage(error: string, description: string | null) {
+  if (description?.includes('expired')) {
+    return 'Ссылка для входа недействительна или истекла. Запросите новую ссылку.'
+  }
+
+  if (error === 'auth_failed') {
+    return 'Не удалось выполнить вход. Попробуйте запросить новую ссылку.'
+  }
+
+  return description || 'Не удалось выполнить вход. Попробуйте ещё раз.'
 }

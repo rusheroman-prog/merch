@@ -2,8 +2,9 @@
 
 import AdminShell from '@/components/AdminShell'
 import ProductImageUploader from '@/components/ProductImageUploader'
+import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 export type AdminCategory = {
   id: string
@@ -54,21 +55,19 @@ export default function AdminProductsClient({
   adminEmail,
   orderCount,
 }: Props) {
-  const searchParams = useSearchParams()
-  const isCardsMode = searchParams.get('mode') === 'cards'
-  const queryFromUrl = searchParams.get('q') ?? ''
+  const searchParams  = useSearchParams()
+  const isCardsMode   = searchParams.get('mode') === 'cards'
+  const queryFromUrl  = searchParams.get('q') ?? ''
 
-  const [search, setSearch] = useState(queryFromUrl)
-  const [selectedCategory, setSelectedCategory] = useState<string>('all')
-  const [stockFilter, setStockFilter] = useState<StockFilter>('all')
-  const [showInactive, setShowInactive] = useState(true)
+  const [search,            setSearch]           = useState(queryFromUrl)
+  const [selectedCategory,  setSelectedCategory] = useState<string>('all')
+  const [stockFilter,       setStockFilter]      = useState<StockFilter>('all')
+  const [showInactive,      setShowInactive]      = useState(true)
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null)
-  const [editingProductId, setEditingProductId] = useState<string | null>(null)
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [editingProductId,  setEditingProductId]  = useState<string | null>(null)
+  const [isCreateOpen,      setIsCreateOpen]      = useState(false)
 
-  useEffect(() => {
-    setSearch(queryFromUrl)
-  }, [queryFromUrl])
+  useEffect(() => { setSearch(queryFromUrl) }, [queryFromUrl])
 
   const filteredProducts = useMemo(() => {
     const value = search.trim().toLowerCase()
@@ -76,19 +75,13 @@ export default function AdminProductsClient({
     return products.filter((product) => {
       const stats = getProductStats(product)
 
-      const activeMatch = showInactive || product.is_active
-
-      const categoryMatch =
-        selectedCategory === 'all' || product.category_id === selectedCategory
-
-      const stockMatch =
+      const activeMatch   = showInactive || product.is_active
+      const categoryMatch = selectedCategory === 'all' || product.category_id === selectedCategory
+      const stockMatch    =
         stockFilter === 'all' ||
-        (stockFilter === 'low' && stats.lowVariants > 0) ||
-        (stockFilter === 'zero' && stats.zeroVariants > 0) ||
-        (stockFilter === 'normal' &&
-          stats.lowVariants === 0 &&
-          stats.zeroVariants === 0 &&
-          stats.availableQty > 0)
+        (stockFilter === 'low'    && stats.lowVariants > 0) ||
+        (stockFilter === 'zero'   && stats.zeroVariants > 0) ||
+        (stockFilter === 'normal' && stats.lowVariants === 0 && stats.zeroVariants === 0 && stats.availableQty > 0)
 
       const searchMatch =
         value.length === 0 ||
@@ -96,16 +89,8 @@ export default function AdminProductsClient({
         product.description?.toLowerCase().includes(value) ||
         product.material?.toLowerCase().includes(value) ||
         getCategoryName(product).toLowerCase().includes(value) ||
-        product.product_variants.some((variant) =>
-          [
-            variant.size,
-            variant.color,
-            variant.sku,
-          ]
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase()
-            .includes(value)
+        product.product_variants.some((v) =>
+          [v.size, v.color, v.sku].filter(Boolean).join(' ').toLowerCase().includes(value)
         )
 
       return activeMatch && categoryMatch && stockMatch && searchMatch
@@ -113,115 +98,53 @@ export default function AdminProductsClient({
   }, [products, search, selectedCategory, stockFilter, showInactive])
 
   const totals = useMemo(() => {
-    const totalProducts = products.length
-    const activeProducts = products.filter((product) => product.is_active).length
-
-    const totalVariants = products.reduce(
-      (sum, product) => sum + product.product_variants.length,
-      0
-    )
-
-    const totalQty = products.reduce(
-      (sum, product) => sum + getProductStats(product).totalQty,
-      0
-    )
-
-    const reservedQty = products.reduce(
-      (sum, product) => sum + getProductStats(product).reservedQty,
-      0
-    )
-
-    const availableQty = Math.max(0, totalQty - reservedQty)
-
-    const lowVariants = products.reduce(
-      (sum, product) => sum + getProductStats(product).lowVariants,
-      0
-    )
-
-    return {
-      totalProducts,
-      activeProducts,
-      totalVariants,
-      totalQty,
-      reservedQty,
-      availableQty,
-      lowVariants,
-    }
+    const totalProducts  = products.length
+    const activeProducts = products.filter((p) => p.is_active).length
+    const totalVariants  = products.reduce((s, p) => s + p.product_variants.length, 0)
+    const totalQty       = products.reduce((s, p) => s + getProductStats(p).totalQty, 0)
+    const reservedQty    = products.reduce((s, p) => s + getProductStats(p).reservedQty, 0)
+    const availableQty   = Math.max(0, totalQty - reservedQty)
+    const lowVariants    = products.reduce((s, p) => s + getProductStats(p).lowVariants, 0)
+    return { totalProducts, activeProducts, totalVariants, totalQty, reservedQty, availableQty, lowVariants }
   }, [products])
 
   function handleExportStockCsv() {
     const rows = filteredProducts.flatMap((product) => {
       const productStats = getProductStats(product)
-
       const baseRow = {
-        product_name: product.name,
-        category: getCategoryName(product),
-        material: product.material || '',
-        product_status: product.is_active ? 'Активен' : 'Отключён',
-        product_total_qty: String(productStats.totalQty),
-        product_reserved_qty: String(productStats.reservedQty),
+        product_name:          product.name,
+        category:              getCategoryName(product),
+        material:              product.material || '',
+        product_status:        product.is_active ? 'Активен' : 'Отключён',
+        product_total_qty:     String(productStats.totalQty),
+        product_reserved_qty:  String(productStats.reservedQty),
         product_available_qty: String(productStats.availableQty),
-        product_low_variants: String(productStats.lowVariants),
+        product_low_variants:  String(productStats.lowVariants),
         product_zero_variants: String(productStats.zeroVariants),
       }
 
       if (product.product_variants.length === 0) {
-        return [
-          {
-            ...baseRow,
-            variant_size: '',
-            variant_color: '',
-            sku: '',
-            variant_status: '',
-            total_qty: '',
-            reserved_qty: '',
-            available_qty: '',
-            stock_status: 'Нет вариантов',
-          },
-        ]
+        return [{ ...baseRow, variant_size: '', variant_color: '', sku: '', variant_status: '', total_qty: '', reserved_qty: '', available_qty: '', stock_status: 'Нет вариантов' }]
       }
 
       return product.product_variants.map((variant) => {
-        const totalQty = Number(variant.total_qty)
-        const reservedQty = Number(variant.reserved_qty)
+        const totalQty     = Number(variant.total_qty)
+        const reservedQty  = Number(variant.reserved_qty)
         const availableQty = Math.max(0, totalQty - reservedQty)
-
-        const stockStatus =
-          availableQty <= 0
-            ? 'В нуле'
-            : availableQty <= 4
-              ? 'Низкий остаток'
-              : 'Норма'
-
-        return {
-          ...baseRow,
-          variant_size: variant.size || 'ONE SIZE',
-          variant_color: variant.color || 'Без цвета',
-          sku: variant.sku || '',
-          variant_status: variant.is_active ? 'Активен' : 'Отключён',
-          total_qty: String(totalQty),
-          reserved_qty: String(reservedQty),
-          available_qty: String(availableQty),
-          stock_status: stockStatus,
-        }
+        const stockStatus  = availableQty <= 0 ? 'В нуле' : availableQty <= 4 ? 'Низкий остаток' : 'Норма'
+        return { ...baseRow, variant_size: variant.size || 'ONE SIZE', variant_color: variant.color || 'Без цвета', sku: variant.sku || '', variant_status: variant.is_active ? 'Активен' : 'Отключён', total_qty: String(totalQty), reserved_qty: String(reservedQty), available_qty: String(availableQty), stock_status: stockStatus }
       })
     })
 
-    const csv = toCsv(rows)
-
-    const blob = new Blob([`\uFEFF${csv}`], {
-      type: 'text/csv;charset=utf-8;',
-    })
-
-    const url = URL.createObjectURL(blob)
+    const csv  = toCsv(rows)
+    const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' })
+    const url  = URL.createObjectURL(blob)
     const link = document.createElement('a')
-
-    link.href = url
+    link.href     = url
     link.download = `uzum-merch-stock-${getExportDate()}.csv`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-
     URL.revokeObjectURL(url)
   }
 
@@ -233,241 +156,192 @@ export default function AdminProductsClient({
       orderCount={orderCount}
       stockAlertCount={totals.lowVariants}
     >
-      <section className="admin-products" style={styles.pageBlock}>
-        <section style={styles.categoryTabs}>
+      <section className="ap-page">
+
+        {/* Category tabs */}
+        <section className="ap-cat-tabs">
           <button
             type="button"
             onClick={() => setSelectedCategory('all')}
-            style={{
-              ...styles.categoryTab,
-              ...(selectedCategory === 'all' ? styles.categoryTabActive : {}),
-            }}
+            className={`ap-cat-tab${selectedCategory === 'all' ? ' ap-cat-tab-active' : ''}`}
           >
             Все категории
           </button>
-
           {categories.map((category) => (
             <button
               key={category.id}
               type="button"
               onClick={() => setSelectedCategory(category.id)}
-              style={{
-                ...styles.categoryTab,
-                ...(selectedCategory === category.id
-                  ? styles.categoryTabActive
-                  : {}),
-              }}
+              className={`ap-cat-tab${selectedCategory === category.id ? ' ap-cat-tab-active' : ''}`}
             >
               {category.name}
             </button>
           ))}
         </section>
 
-        <section className="admin-products__toolbar" style={styles.toolbar}>
-          <div style={styles.searchBox}>
-            <span style={styles.searchIcon}>⌕</span>
-
+        {/* Toolbar */}
+        <section className="ap-toolbar">
+          <div className="ap-search-box">
+            <span className="ap-search-icon">⌕</span>
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Поиск товара, материала, SKU..."
-              style={styles.searchInput}
+              className="ap-search-input"
             />
-
             {search.trim().length > 0 && (
-              <button
-                type="button"
-                onClick={() => setSearch('')}
-                style={styles.clearSearchButton}
-              >
-                ×
-              </button>
+              <button type="button" onClick={() => setSearch('')} className="ap-clear-btn">×</button>
             )}
           </div>
 
-          <div className="admin-products__toolbarRight" style={styles.toolbarRight}>
-            <div className="admin-products__stockTabs" style={styles.stockTabs}>
-              <button
-                type="button"
-                onClick={() => setStockFilter('all')}
-                style={{
-                  ...styles.stockTab,
-                  ...(stockFilter === 'all' ? styles.stockTabActive : {}),
-                }}
-              >
-                Все
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStockFilter('low')}
-                style={{
-                  ...styles.stockTab,
-                  ...(stockFilter === 'low' ? styles.stockTabActive : {}),
-                }}
-              >
-                Низкие
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStockFilter('zero')}
-                style={{
-                  ...styles.stockTab,
-                  ...(stockFilter === 'zero' ? styles.stockTabActive : {}),
-                }}
-              >
-                В нуле
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStockFilter('normal')}
-                style={{
-                  ...styles.stockTab,
-                  ...(stockFilter === 'normal' ? styles.stockTabActive : {}),
-                }}
-              >
-                Норма
-              </button>
+          <div className="ap-toolbar-right">
+            <div className="ap-stock-tabs">
+              {(['all', 'low', 'zero', 'normal'] as StockFilter[]).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setStockFilter(f)}
+                  className={`ap-stock-tab${stockFilter === f ? ' ap-stock-tab-active' : ''}`}
+                >
+                  {{ all: 'Все', low: 'Низкие', zero: 'В нуле', normal: 'Норма' }[f]}
+                </button>
+              ))}
             </div>
 
-            <label style={styles.checkboxLabel}>
+            <label className="ap-checkbox-label">
               <input
                 type="checkbox"
                 checked={showInactive}
-                onChange={(event) => setShowInactive(event.target.checked)}
+                onChange={(e) => setShowInactive(e.target.checked)}
               />
               Показывать отключённые
             </label>
 
             <button
               type="button"
+              className="ap-export-btn"
               onClick={handleExportStockCsv}
               disabled={filteredProducts.length === 0}
-              style={{
-                ...styles.exportButton,
-                ...(filteredProducts.length === 0 ? styles.exportButtonDisabled : {}),
-              }}
             >
               Экспорт CSV
             </button>
 
             <button
               type="button"
-              onClick={() => setIsCreateOpen((value) => !value)}
-              style={styles.newButton}
+              className="ap-new-btn"
+              onClick={() => setIsCreateOpen((v) => !v)}
             >
               + Новый товар
             </button>
           </div>
         </section>
 
-        <section style={isCardsMode ? styles.modeNoticeCards : styles.modeNoticeStock}>
+        {/* Mode notice */}
+        <section className={isCardsMode ? 'ap-mode-notice-cards' : 'ap-mode-notice'}>
           <div>
             <b>{isCardsMode ? 'Режим карточек товара' : 'Режим склада'}</b>
             <span>
               {isCardsMode
-                ? 'Клик по строке открывает редактирование карточки, фото, описания и вариантов.'
-                : 'Клик по строке раскрывает складские варианты и остатки.'}
+                ? ' Клик по строке открывает редактирование карточки, фото, описания и вариантов.'
+                : ' Клик по строке раскрывает складские варианты и остатки.'}
             </span>
           </div>
         </section>
 
+        {/* Create product panel */}
         {isCreateOpen && (
-          <CreateProductCard
-            categories={categories}
-            onClose={() => setIsCreateOpen(false)}
-          />
+          <CreateProductCard categories={categories} onClose={() => setIsCreateOpen(false)} />
         )}
 
-        <section className="admin-products__summaryStrip" style={styles.summaryStrip}>
-          <SummaryMetric label="Товаров" value={String(totals.totalProducts)} />
-          <SummaryMetric label="Активных" value={String(totals.activeProducts)} />
+        {/* Summary strip */}
+        <section className="ap-summary-strip">
+          <SummaryMetric label="Товаров"   value={String(totals.totalProducts)} />
+          <SummaryMetric label="Активных"  value={String(totals.activeProducts)} />
           <SummaryMetric label="Вариантов" value={String(totals.totalVariants)} />
           <SummaryMetric label="На складе" value={`${totals.totalQty} шт.`} />
           <SummaryMetric label="В резерве" value={`${totals.reservedQty} шт.`} />
-          <SummaryMetric label="Доступно" value={`${totals.availableQty} шт.`} />
-          <SummaryMetric label="Низкие" value={String(totals.lowVariants)} tone="pink" />
+          <SummaryMetric label="Доступно"  value={`${totals.availableQty} шт.`} />
+          <SummaryMetric label="Низкие"    value={String(totals.lowVariants)} tone="pink" />
         </section>
 
+        {/* Content */}
         {filteredProducts.length === 0 ? (
-          <section style={styles.emptyCard}>
-            <div style={styles.emptyMark}>∅</div>
-
-            <h2 style={styles.emptyTitle}>Товары не найдены</h2>
-
-            <p style={styles.emptyText}>
-              Измените поиск, категорию или складской фильтр.
-            </p>
+          <section className="ap-empty-card">
+            <div className="ap-empty-mark">∅</div>
+            <h2 className="ap-empty-title">Товары не найдены</h2>
+            <p className="ap-empty-text">Измените поиск, категорию или складской фильтр.</p>
           </section>
+
         ) : isCardsMode ? (
           <>
-            <section style={styles.cardsGrid}>
+            <section className="ap-cards-grid">
               {filteredProducts.map((product) => {
                 const isEditing = editingProductId === product.id
-
-                 return (
-                   <ProductCardMode
-                      key={product.id}
-                      product={product}
-                      isEditing={isEditing}
-                      onEdit={() => {
-                        setExpandedProductId(null)
-                        setEditingProductId(isEditing ? null : product.id)
-                      }}
-                    />
+                return (
+                  <ProductCardMode
+                    key={product.id}
+                    product={product}
+                    isEditing={isEditing}
+                    onEdit={() => {
+                      setExpandedProductId(null)
+                      setEditingProductId(isEditing ? null : product.id)
+                    }}
+                  />
                 )
-             })}
+              })}
             </section>
 
             {editingProductId && (
               <ProductEditPanel
-                product={filteredProducts.find((product) => product.id === editingProductId)!}
+                product={filteredProducts.find((p) => p.id === editingProductId)!}
                 categories={categories}
                 onClose={() => setEditingProductId(null)}
               />
             )}
           </>
+
         ) : (
-          <section style={styles.productList}>
+          <section className="ap-product-list">
             {filteredProducts.map((product) => {
               const isExpanded = expandedProductId === product.id
-              const isEditing = editingProductId === product.id
+              const isEditing  = editingProductId  === product.id
 
-               return (
-                 <div key={product.id} style={styles.productGroup}>
-                   <ProductRow
+              return (
+                <div key={product.id} className="ap-product-group">
+                  <ProductRow
+                    product={product}
+                    isExpanded={isExpanded}
+                    isEditing={isEditing}
+                    onToggle={() => {
+                      setEditingProductId(null)
+                      setExpandedProductId(isExpanded ? null : product.id)
+                    }}
+                    onEdit={() => {
+                      setExpandedProductId(null)
+                      setEditingProductId(isEditing ? null : product.id)
+                    }}
+                  />
+                  {isEditing && (
+                    <ProductEditPanel
                       product={product}
-                      isExpanded={isExpanded}
-                      isEditing={isEditing}
-                      isCardsMode={false}
-                      onToggle={() => {
-                        setEditingProductId(null)
-                        setExpandedProductId(isExpanded ? null : product.id)
-                      }}
-                      onEdit={() => {
-                        setExpandedProductId(null)
-                        setEditingProductId(isEditing ? null : product.id)
-                      }}
+                      categories={categories}
+                      onClose={() => setEditingProductId(null)}
                     />
-
-                    {isEditing && (
-                      <ProductEditPanel
-                        product={product}
-                        categories={categories}
-                        onClose={() => setEditingProductId(null)}
-                      />
-                    )}
-                  </div>
-                )
-             })}
+                  )}
+                </div>
+              )
+            })}
           </section>
         )}
+
       </section>
     </AdminShell>
   )
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  CreateProductCard                                                            */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 function CreateProductCard({
   categories,
@@ -478,13 +352,13 @@ function CreateProductCard({
 }) {
   const router = useRouter()
 
-  const [name, setName] = useState('')
+  const [name,        setName]        = useState('')
   const [description, setDescription] = useState('')
-  const [material, setMaterial] = useState('')
-  const [categoryId, setCategoryId] = useState(categories[0]?.id ?? '')
-  const [imageUrl, setImageUrl] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [material,    setMaterial]    = useState('')
+  const [categoryId,  setCategoryId]  = useState(categories[0]?.id ?? '')
+  const [imageUrl,    setImageUrl]    = useState('')
+  const [isSaving,    setIsSaving]    = useState(false)
+  const [error,       setError]       = useState<string | null>(null)
 
   async function handleCreate() {
     setIsSaving(true)
@@ -506,114 +380,69 @@ function CreateProductCard({
       })
 
       const result = await response.json()
+      if (!response.ok) { setError(result.error || 'Не удалось создать товар'); return }
 
-      if (!response.ok) {
-        setError(result.error || 'Не удалось создать товар')
-        return
-      }
-
-      setName('')
-      setDescription('')
-      setMaterial('')
-      setImageUrl('')
+      setName(''); setDescription(''); setMaterial(''); setImageUrl('')
       onClose()
       router.refresh()
-    } catch (createError) {
-      setError(
-        createError instanceof Error ? createError.message : 'Неизвестная ошибка'
-      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
     } finally {
       setIsSaving(false)
     }
   }
 
   return (
-    <section style={styles.createCard}>
-      <div style={styles.createHead}>
+    <section className="ap-create-card">
+      <div className="ap-create-head">
         <div>
-          <h2 style={styles.panelTitle}>Новый товар</h2>
-          <p style={styles.panelHint}>
-            Создайте карточку. Варианты и остатки можно добавить после создания.
-          </p>
+          <h2 className="ap-panel-title">Новый товар</h2>
+          <p className="ap-panel-hint">Создайте карточку. Варианты и остатки можно добавить после создания.</p>
         </div>
-
-        <button type="button" onClick={onClose} style={styles.lightButton}>
-          Свернуть
-        </button>
+        <button type="button" onClick={onClose} className="ap-light-btn">Свернуть</button>
       </div>
 
-      <div style={styles.editGrid}>
-        <label style={styles.label}>
+      <div className="ap-edit-grid">
+        <label className="ap-label">
           Название
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Например: Худи «Команда»"
-            style={styles.input}
-          />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например: Худи «Команда»" className="ap-input" />
         </label>
 
-        <label style={styles.label}>
+        <label className="ap-label">
           Категория
-          <select
-            value={categoryId}
-            onChange={(event) => setCategoryId(event.target.value)}
-            style={styles.input}
-          >
+          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="ap-input">
             <option value="">Без категории</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
 
-        <label style={styles.label}>
+        <label className="ap-label">
           Материал
-          <input
-            value={material}
-            onChange={(event) => setMaterial(event.target.value)}
-            placeholder="Например: хлопок"
-            style={styles.input}
-          />
+          <input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Например: хлопок" className="ap-input" />
         </label>
 
-        <label style={styles.labelWide}>
+        <label className="ap-label-wide">
           Описание
-          <textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Описание товара"
-            style={styles.textarea}
-          />
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Описание товара" className="ap-textarea" />
         </label>
 
-        <div style={styles.labelWide}>
-          <ProductImageUploader
-            value={imageUrl}
-            onChange={setImageUrl}
-            label="Фото товара"
-          />
+        <div className="ap-label-wide">
+          <ProductImageUploader value={imageUrl} onChange={setImageUrl} label="Фото товара" />
         </div>
       </div>
 
-      {error && <div style={styles.error}>{error}</div>}
+      {error && <div className="ap-error">{error}</div>}
 
-      <button
-        type="button"
-        onClick={handleCreate}
-        disabled={isSaving}
-        style={{
-          ...styles.saveButton,
-          ...(isSaving ? styles.saveButtonDisabled : {}),
-        }}
-      >
+      <button type="button" onClick={handleCreate} disabled={isSaving} className="ap-save-btn">
         {isSaving ? 'Создаём...' : 'Создать товар'}
       </button>
     </section>
   )
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  ProductCardMode                                                              */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 function ProductCardMode({
   product,
@@ -624,69 +453,40 @@ function ProductCardMode({
   isEditing: boolean
   onEdit: () => void
 }) {
-  const stats = getProductStats(product)
+  const stats    = getProductStats(product)
   const imageUrl = product.image_url || product.images?.[0] || ''
 
   return (
-    <article
-      style={{
-        ...styles.cardMode,
-        ...(isEditing ? styles.cardModeActive : {}),
-      }}
-    >
-      <div style={styles.cardModeImageWrap}>
+    <article className={`ap-card${isEditing ? ' ap-card-active' : ''}`}>
+      <div className="ap-card-img-wrap">
         {imageUrl ? (
-          <img src={imageUrl} alt={product.name} style={styles.cardModeImage} />
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img src={imageUrl} alt={product.name} className="ap-card-img" />
         ) : (
-          <div style={styles.cardModePlaceholder}>
-            {getProductLetter(product.name)}
-          </div>
+          <div className="ap-card-placeholder">{getProductLetter(product.name)}</div>
         )}
-
-        <span
-          style={
-            product.is_active
-              ? styles.cardModeStatusActive
-              : styles.cardModeStatusInactive
-          }
-        >
+        <span className={`ap-card-status ${product.is_active ? 'ap-card-status-active' : 'ap-card-status-inactive'}`}>
           {product.is_active ? 'Опубликован' : 'Отключён'}
         </span>
       </div>
 
-      <div style={styles.cardModeBody}>
-        <div style={styles.cardModeCategory}>{getCategoryName(product)}</div>
-
-        <h3 style={styles.cardModeTitle}>{product.name}</h3>
-
-        <p style={styles.cardModeDescription}>
+      <div className="ap-card-body">
+        <div className="ap-card-category">{getCategoryName(product)}</div>
+        <h3 className="ap-card-title">{product.name}</h3>
+        <p className="ap-card-description">
           {product.description || 'Описание товара пока не заполнено.'}
         </p>
 
-        <div style={styles.cardModeMeta}>
-          <div style={styles.cardModeMetaItem}>
-            <span>Материал</span>
-            <b>{product.material || 'Не указан'}</b>
-          </div>
-
-          <div style={styles.cardModeMetaItem}>
-            <span>Вариантов</span>
-            <b>{product.product_variants.length}</b>
-          </div>
-
-          <div style={styles.cardModeMetaItem}>
-            <span>Доступно</span>
-            <b>{stats.availableQty} шт.</b>
-          </div>
+        <div className="ap-card-meta">
+          <div className="ap-card-meta-item"><span>Материал</span><b>{product.material || 'Не указан'}</b></div>
+          <div className="ap-card-meta-item"><span>Вариантов</span><b>{product.product_variants.length}</b></div>
+          <div className="ap-card-meta-item"><span>Доступно</span><b>{stats.availableQty} шт.</b></div>
         </div>
 
         <button
           type="button"
           onClick={onEdit}
-          style={{
-            ...styles.cardModeButton,
-            ...(isEditing ? styles.cardModeButtonActive : {}),
-          }}
+          className={`ap-card-btn${isEditing ? ' ap-card-btn-active' : ''}`}
         >
           {isEditing ? 'Редактируется' : 'Редактировать карточку'}
         </button>
@@ -695,125 +495,88 @@ function ProductCardMode({
   )
 }
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  ProductRow                                                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 function ProductRow({
   product,
   isExpanded,
   isEditing,
-  isCardsMode,
   onToggle,
   onEdit,
 }: {
   product: AdminProduct
   isExpanded: boolean
   isEditing: boolean
-  isCardsMode: boolean
   onToggle: () => void
   onEdit: () => void
 }) {
-  const stats = getProductStats(product)
+  const stats    = getProductStats(product)
   const imageUrl = product.image_url || product.images?.[0] || ''
 
   return (
-    <article
-      className="admin-products__productCard"
-      style={{
-        ...styles.productCard,
-        ...(isExpanded ? styles.productCardExpanded : {}),
-        ...(isEditing ? styles.productCardEditing : {}),
-      }}
-    >
+    <article className={`ap-product-card${isExpanded ? ' ap-product-card-expanded' : ''}${isEditing ? ' ap-product-card-editing' : ''}`}>
       <div
         role="button"
-        className="admin-products__productRow"
         tabIndex={0}
         onClick={onToggle}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            onToggle()
-          }
-        }}
-        style={{
-          ...styles.productRow,
-          ...(isExpanded || isEditing ? styles.productRowActive : {}),
-        }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
+        className={`ap-product-row${isExpanded || isEditing ? ' ap-product-row-active' : ''}`}
       >
-        <div style={styles.productArt}>
+        <div className="ap-product-art">
           {imageUrl ? (
-            <img src={imageUrl} alt={product.name} style={styles.productImage} />
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={imageUrl} alt={product.name} className="ap-product-image" />
           ) : (
-            <div style={styles.productPlaceholder}>
-              {getProductLetter(product.name)}
-            </div>
+            <div className="ap-product-placeholder">{getProductLetter(product.name)}</div>
           )}
         </div>
 
-        <div className="admin-products__productNameCell" style={styles.productNameCell}>
+        <div className="ap-product-name-cell">
           <span>{getCategoryName(product)}</span>
           <b>{product.name}</b>
           {!product.is_active && <small>Отключён</small>}
         </div>
 
-        <Metric className="admin-products__metric" label="Всего на складе" value={`${stats.totalQty} шт.`} />
-        <Metric className="admin-products__metric" label="Вариантов в нуле" value={String(stats.zeroVariants)} tone="pink" />
-        <Metric className="admin-products__metric" label="Низкие остатки" value={String(stats.lowVariants)} tone="pink" />
-        <Metric className="admin-products__metric" label="Вариантов" value={String(product.product_variants.length)} />
+        <Metric label="Всего на складе"    value={`${stats.totalQty} шт.`} />
+        <Metric label="Вариантов в нуле"   value={String(stats.zeroVariants)} tone="pink" />
+        <Metric label="Низкие остатки"     value={String(stats.lowVariants)} tone="pink" />
+        <Metric label="Вариантов"          value={String(product.product_variants.length)} />
 
-        <div className="admin-products__rowActions" style={styles.rowActions}>
-          {!isCardsMode && (
-            <button
-              type="button"
-              style={{
-                ...styles.lightButton,
-                ...(isExpanded ? styles.lightButtonActive : {}),
-              }}
-              onClick={(event) => {
-                event.stopPropagation()
-                onToggle()
-              }}
-            >
-              Остатки
-            </button>
-          )}
+        <div className="ap-row-actions">
+          <button
+            type="button"
+            className={`ap-light-btn${isExpanded ? ' ap-light-btn-active' : ''}`}
+            onClick={(e) => { e.stopPropagation(); onToggle() }}
+          >
+            Остатки
+          </button>
 
           <button
             type="button"
-            style={{
-              ...styles.lightButton,
-              ...(isEditing || isCardsMode ? styles.lightButtonActive : {}),
-            }}
-            onClick={(event) => {
-              event.stopPropagation()
-              onEdit()
-            }}
+            className={`ap-light-btn${isEditing ? ' ap-light-btn-active' : ''}`}
+            onClick={(e) => { e.stopPropagation(); onEdit() }}
           >
             Редактировать
           </button>
 
-          <span style={styles.chevron}>
-            {isCardsMode
-              ? isEditing
-                ? '⌃'
-                : '→'
-              : isExpanded
-                ? '⌃'
-                : '⌄'}
-          </span>
+          <span className="ap-chevron">{isExpanded ? '⌃' : '⌄'}</span>
         </div>
       </div>
 
-      {isExpanded && <InventoryExpanded product={product} />}
+      {isExpanded && (
+        <section className="ap-inventory-expanded">
+          <VariantsEditor product={product} />
+        </section>
+      )}
     </article>
   )
 }
 
-function InventoryExpanded({ product }: { product: AdminProduct }) {
-  return (
-    <section style={styles.inventoryExpanded}>
-      <VariantsEditor product={product} />
-    </section>
-  )
-}
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  ProductEditPanel                                                             */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 function ProductEditPanel({
   product,
@@ -824,65 +587,49 @@ function ProductEditPanel({
   categories: AdminCategory[]
   onClose: () => void
 }) {
-  const stats = getProductStats(product)
+  const stats    = getProductStats(product)
   const imageUrl = product.image_url || product.images?.[0] || ''
 
   return (
-    <section style={styles.productEditPanel}>
-      <div style={styles.editHero}>
-        <div style={styles.editHeroLeft}>
-          <div style={styles.productArt}>
+    <section className="ap-edit-panel">
+      <div className="ap-edit-hero">
+        <div className="ap-edit-hero-left">
+          <div className="ap-product-art">
             {imageUrl ? (
-              <img src={imageUrl} alt={product.name} style={styles.productImage} />
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={imageUrl} alt={product.name} className="ap-product-image" />
             ) : (
-              <div style={styles.productPlaceholder}>
-                {getProductLetter(product.name)}
-              </div>
+              <div className="ap-product-placeholder">{getProductLetter(product.name)}</div>
             )}
           </div>
-
           <div>
-            <div style={styles.editBreadcrumb}>
-              Склад / {product.name}
-            </div>
-
-            <h2 style={styles.editTitle}>{product.name}</h2>
-
-            <div style={styles.editMetrics}>
+            <div className="ap-edit-breadcrumb">Склад / {product.name}</div>
+            <h2 className="ap-edit-title">{product.name}</h2>
+            <div className="ap-edit-metrics">
               <Metric label="Всего на складе" value={`${stats.totalQty} шт.`} />
-              <Metric label="Резерв" value={`${stats.reservedQty} шт.`} />
-              <Metric label="Доступно" value={`${stats.availableQty} шт.`} />
-              <Metric
-                label="Вариантов"
-                value={String(product.product_variants.length)}
-              />
+              <Metric label="Резерв"          value={`${stats.reservedQty} шт.`} />
+              <Metric label="Доступно"        value={`${stats.availableQty} шт.`} />
+              <Metric label="Вариантов"       value={String(product.product_variants.length)} />
             </div>
           </div>
         </div>
 
-        <div style={styles.editHeroActions}>
-          <button type="button" style={styles.lightButton}>
-            Дублировать
-          </button>
-
-          <button type="button" style={styles.dangerButton}>
-            Снять с публикации
-          </button>
-
-          <button type="button" onClick={onClose} style={styles.darkButton}>
-            Закрыть
-          </button>
+        <div className="ap-edit-hero-actions">
+          <button type="button" onClick={onClose} className="ap-dark-btn">Закрыть</button>
         </div>
       </div>
 
-      <section style={styles.expanded}>
+      <section className="ap-expanded">
         <ProductMainEditor product={product} categories={categories} />
-
         <VariantsEditor product={product} />
       </section>
     </section>
   )
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  ProductMainEditor                                                            */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 function ProductMainEditor({
   product,
@@ -893,21 +640,18 @@ function ProductMainEditor({
 }) {
   const router = useRouter()
 
-  const [name, setName] = useState(product.name)
+  const [name,        setName]        = useState(product.name)
   const [description, setDescription] = useState(product.description ?? '')
-  const [material, setMaterial] = useState(product.material ?? '')
-  const [categoryId, setCategoryId] = useState(product.category_id ?? '')
-  const [imageUrl, setImageUrl] = useState(product.image_url ?? '')
-  const [isActive, setIsActive] = useState(product.is_active)
-
-  const [isSaving, setIsSaving] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [material,    setMaterial]    = useState(product.material ?? '')
+  const [categoryId,  setCategoryId]  = useState(product.category_id ?? '')
+  const [imageUrl,    setImageUrl]    = useState(product.image_url ?? '')
+  const [isActive,    setIsActive]    = useState(product.is_active)
+  const [isSaving,    setIsSaving]    = useState(false)
+  const [message,     setMessage]     = useState<string | null>(null)
+  const [error,       setError]       = useState<string | null>(null)
 
   async function handleUpdateProduct() {
-    setIsSaving(true)
-    setMessage(null)
-    setError(null)
+    setIsSaving(true); setMessage(null); setError(null)
 
     try {
       const response = await fetch('/api/admin/products', {
@@ -916,9 +660,7 @@ function ProductMainEditor({
         body: JSON.stringify({
           action: 'update_product',
           product_id: product.id,
-          name,
-          description,
-          material,
+          name, description, material,
           category_id: categoryId || null,
           image_url: imageUrl,
           is_active: isActive,
@@ -926,130 +668,89 @@ function ProductMainEditor({
       })
 
       const result = await response.json()
-
-      if (!response.ok) {
-        setError(result.error || 'Не удалось обновить товар')
-        return
-      }
+      if (!response.ok) { setError(result.error || 'Не удалось обновить товар'); return }
 
       setMessage('Товар обновлён')
       router.refresh()
-    } catch (updateError) {
-      setError(
-        updateError instanceof Error ? updateError.message : 'Неизвестная ошибка'
-      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
     } finally {
       setIsSaving(false)
     }
   }
 
   return (
-    <section style={styles.editorCard}>
-      <div style={styles.panelHead}>
+    <section className="ap-editor-card">
+      <div className="ap-panel-head">
         <div>
-          <h3 style={styles.panelTitle}>Основное</h3>
-          <p style={styles.panelHint}>ACTION: UPDATE_PRODUCT</p>
+          <h3 className="ap-panel-title">Основное</h3>
+          <p className="ap-panel-hint">Измените данные товара и сохраните изменения.</p>
         </div>
-
-        <label style={styles.switchLabel}>
-          <input
-            type="checkbox"
-            checked={isActive}
-            onChange={(event) => setIsActive(event.target.checked)}
-          />
+        <label className="ap-switch-label">
+          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
           Видим в каталоге
         </label>
       </div>
 
-      <div style={styles.editGrid}>
-        <label style={styles.labelWide}>
+      <div className="ap-edit-grid">
+        <label className="ap-label-wide">
           Название
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            style={styles.input}
-          />
+          <input value={name} onChange={(e) => setName(e.target.value)} className="ap-input" />
         </label>
 
-        <label style={styles.labelWide}>
+        <label className="ap-label-wide">
           Описание
-          <textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            style={styles.textarea}
-          />
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="ap-textarea" />
         </label>
 
-        <label style={styles.label}>
+        <label className="ap-label">
           Категория · CATEGORY_ID
-          <select
-            value={categoryId}
-            onChange={(event) => setCategoryId(event.target.value)}
-            style={styles.input}
-          >
+          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="ap-input">
             <option value="">Без категории</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
 
-        <label style={styles.label}>
+        <label className="ap-label">
           Материал
-          <input
-            value={material}
-            onChange={(event) => setMaterial(event.target.value)}
-            style={styles.input}
-          />
+          <input value={material} onChange={(e) => setMaterial(e.target.value)} className="ap-input" />
         </label>
 
-        <div style={styles.labelWide}>
-          <ProductImageUploader
-            value={imageUrl}
-            onChange={setImageUrl}
-            productId={product.id}
-            label="IMAGE_URL"
-          />
+        <div className="ap-label-wide">
+          <ProductImageUploader value={imageUrl} onChange={setImageUrl} productId={product.id} label="IMAGE_URL" />
         </div>
       </div>
 
-      {error && <div style={styles.error}>{error}</div>}
-      {message && <div style={styles.success}>{message}</div>}
+      {error   && <div className="ap-error">{error}</div>}
+      {message && <div className="ap-success">{message}</div>}
 
-      <button
-        type="button"
-        onClick={handleUpdateProduct}
-        disabled={isSaving}
-        style={{
-          ...styles.saveButton,
-          ...(isSaving ? styles.saveButtonDisabled : {}),
-        }}
-      >
+      <button type="button" onClick={handleUpdateProduct} disabled={isSaving} className="ap-save-btn">
         {isSaving ? 'Сохраняем...' : 'Сохранить товар'}
       </button>
     </section>
   )
 }
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  VariantsEditor                                                               */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 function VariantsEditor({ product }: { product: AdminProduct }) {
   const router = useRouter()
 
-  const [size, setSize] = useState('')
-  const [color, setColor] = useState('')
-  const [sku, setSku] = useState('')
+  const [size,       setSize]       = useState('')
+  const [color,      setColor]      = useState('')
+  const [sku,        setSku]        = useState('')
   const [initialQty, setInitialQty] = useState('0')
   const [isCreating, setIsCreating] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error,      setError]      = useState<string | null>(null)
 
   const sortedVariants = [...product.product_variants].sort((a, b) =>
     String(a.sku ?? '').localeCompare(String(b.sku ?? ''))
   )
 
   async function handleCreateVariant() {
-    setIsCreating(true)
-    setError(null)
+    setIsCreating(true); setError(null)
 
     try {
       const response = await fetch('/api/admin/products', {
@@ -1058,98 +759,55 @@ function VariantsEditor({ product }: { product: AdminProduct }) {
         body: JSON.stringify({
           action: 'create_variant',
           product_id: product.id,
-          size,
-          color,
-          sku,
+          size, color, sku,
           initial_qty: Number(initialQty),
           is_active: true,
         }),
       })
 
       const result = await response.json()
+      if (!response.ok) { setError(result.error || 'Не удалось создать вариант'); return }
 
-      if (!response.ok) {
-        setError(result.error || 'Не удалось создать вариант')
-        return
-      }
-
-      setSize('')
-      setColor('')
-      setSku('')
-      setInitialQty('0')
+      setSize(''); setColor(''); setSku(''); setInitialQty('0')
       router.refresh()
-    } catch (createError) {
-      setError(
-        createError instanceof Error ? createError.message : 'Неизвестная ошибка'
-      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
     } finally {
       setIsCreating(false)
     }
   }
 
   return (
-    <section style={styles.editorCard}>
-      <div style={styles.panelHead}>
+    <section className="ap-editor-card">
+      <div className="ap-panel-head">
         <div>
-          <h3 style={styles.panelTitle}>Варианты и остатки</h3>
-          <p style={styles.panelHint}>
-            ACTION: CREATE_VARIANT · UPDATE_VARIANT · ADD_STOCK
-          </p>
+          <h3 className="ap-panel-title">Варианты и остатки</h3>
+          <p className="ap-panel-hint">Управляйте вариантами, SKU и остатками товара.</p>
         </div>
       </div>
 
-      <div style={styles.createVariantBox}>
-        <input
-          value={size}
-          onChange={(event) => setSize(event.target.value)}
-          placeholder="SIZE"
-          style={styles.input}
-        />
-
-        <input
-          value={color}
-          onChange={(event) => setColor(event.target.value)}
-          placeholder="COLOR"
-          style={styles.input}
-        />
-
-        <input
-          value={sku}
-          onChange={(event) => setSku(event.target.value)}
-          placeholder="SKU"
-          style={styles.input}
-        />
-
-        <input
-          value={initialQty}
-          onChange={(event) => setInitialQty(event.target.value)}
-          placeholder="Начальный остаток"
-          type="number"
-          style={styles.input}
-        />
-
+      <div className="ap-create-variant-box">
+        <input value={size}       onChange={(e) => setSize(e.target.value)}       placeholder="SIZE"              className="ap-input" />
+        <input value={color}      onChange={(e) => setColor(e.target.value)}      placeholder="COLOR"             className="ap-input" />
+        <input value={sku}        onChange={(e) => setSku(e.target.value)}        placeholder="SKU"               className="ap-input" />
+        <input value={initialQty} onChange={(e) => setInitialQty(e.target.value)} placeholder="Начальный остаток" className="ap-input" type="number" />
         <button
           type="button"
           onClick={handleCreateVariant}
           disabled={isCreating || sku.trim().length === 0}
-          style={{
-            ...styles.darkButton,
-            ...(isCreating || sku.trim().length === 0
-              ? styles.saveButtonDisabled
-              : {}),
-          }}
+          className="ap-dark-btn"
         >
           + Вариант
         </button>
       </div>
 
-      {error && <div style={styles.error}>{error}</div>}
+      {error && <div className="ap-error">{error}</div>}
 
       {sortedVariants.length === 0 ? (
-        <div style={styles.emptyVariant}>Вариантов пока нет.</div>
+        <div className="ap-empty-variant">Вариантов пока нет.</div>
       ) : (
-        <div style={styles.variantTable}>
-          <div style={styles.variantHeader}>
+        <div className="ap-variant-table">
+          <div className="ap-variant-header">
             <div>Размер</div>
             <div>Цвет</div>
             <div>SKU</div>
@@ -1159,7 +817,6 @@ function VariantsEditor({ product }: { product: AdminProduct }) {
             <div>Статус</div>
             <div>Действия</div>
           </div>
-
           {sortedVariants.map((variant) => (
             <VariantRow key={variant.id} variant={variant} />
           ))}
@@ -1169,1117 +826,152 @@ function VariantsEditor({ product }: { product: AdminProduct }) {
   )
 }
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  VariantRow                                                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 function VariantRow({ variant }: { variant: AdminVariant }) {
   const router = useRouter()
 
-  const [size, setSize] = useState(variant.size ?? '')
-  const [color, setColor] = useState(variant.color ?? '')
-  const [sku, setSku] = useState(variant.sku ?? '')
-  const [isActive, setIsActive] = useState(variant.is_active)
+  const [size,         setSize]         = useState(variant.size ?? '')
+  const [color,        setColor]        = useState(variant.color ?? '')
+  const [sku,          setSku]          = useState(variant.sku ?? '')
+  const [isActive,     setIsActive]     = useState(variant.is_active)
+  const [movementType, setMovementType] = useState<'income' | 'adjustment'>('income')
+  const [qty,          setQty]          = useState('')
+  const [comment,      setComment]      = useState('')
+  const [isSaving,     setIsSaving]     = useState(false)
+  const [message,      setMessage]      = useState<string | null>(null)
+  const [error,        setError]        = useState<string | null>(null)
 
-  const [movementType, setMovementType] = useState<'income' | 'adjustment'>(
-    'income'
-  )
-
-  const [qty, setQty] = useState('')
-  const [comment, setComment] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const availableQty = Math.max(
-    0,
-    Number(variant.total_qty) - Number(variant.reserved_qty)
-  )
+  const availableQty = Math.max(0, Number(variant.total_qty) - Number(variant.reserved_qty))
 
   async function handleUpdateVariant() {
-    setIsSaving(true)
-    setMessage(null)
-    setError(null)
+    setIsSaving(true); setMessage(null); setError(null)
 
     try {
       const response = await fetch('/api/admin/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'update_variant',
-          variant_id: variant.id,
-          size,
-          color,
-          sku,
-          is_active: isActive,
-        }),
+        body: JSON.stringify({ action: 'update_variant', variant_id: variant.id, size, color, sku, is_active: isActive }),
       })
-
       const result = await response.json()
-
-      if (!response.ok) {
-        setError(result.error || 'Не удалось обновить вариант')
-        return
-      }
-
+      if (!response.ok) { setError(result.error || 'Не удалось обновить вариант'); return }
       setMessage('Вариант обновлён')
       router.refresh()
-    } catch (updateError) {
-      setError(
-        updateError instanceof Error ? updateError.message : 'Неизвестная ошибка'
-      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
     } finally {
       setIsSaving(false)
     }
   }
 
   async function handleAddStock() {
-    setIsSaving(true)
-    setMessage(null)
-    setError(null)
+    setIsSaving(true); setMessage(null); setError(null)
 
     try {
       const response = await fetch('/api/admin/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'add_stock',
-          variant_id: variant.id,
-          movement_type: movementType,
-          qty: Number(qty),
-          comment,
-        }),
+        body: JSON.stringify({ action: 'add_stock', variant_id: variant.id, movement_type: movementType, qty: Number(qty), comment }),
       })
-
       const result = await response.json()
-
-      if (!response.ok) {
-        setError(result.error || 'Не удалось изменить остаток')
-        return
-      }
-
-      setQty('')
-      setComment('')
-      setMessage('Остаток обновлён')
+      if (!response.ok) { setError(result.error || 'Не удалось изменить остаток'); return }
+      setQty(''); setComment(''); setMessage('Остаток обновлён')
       router.refresh()
-    } catch (stockError) {
-      setError(
-        stockError instanceof Error ? stockError.message : 'Неизвестная ошибка'
-      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
     } finally {
       setIsSaving(false)
     }
   }
 
   return (
-    <div style={styles.variantRowWrap}>
-      <div style={styles.variantRow}>
-        <input
-          value={size}
-          onChange={(event) => setSize(event.target.value)}
-          placeholder="SIZE"
-          style={styles.variantInput}
-        />
-
-        <input
-          value={color}
-          onChange={(event) => setColor(event.target.value)}
-          placeholder="COLOR"
-          style={styles.variantInput}
-        />
-
-        <input
-          value={sku}
-          onChange={(event) => setSku(event.target.value)}
-          placeholder="SKU"
-          style={styles.variantInput}
-        />
+    <div className="ap-variant-row-wrap">
+      <div className="ap-variant-row">
+        <input value={size}  onChange={(e) => setSize(e.target.value)}  placeholder="SIZE"  className="ap-variant-input" />
+        <input value={color} onChange={(e) => setColor(e.target.value)} placeholder="COLOR" className="ap-variant-input" />
+        <input value={sku}   onChange={(e) => setSku(e.target.value)}   placeholder="SKU"   className="ap-variant-input" />
 
         <b>{variant.total_qty}</b>
         <span>{variant.reserved_qty}</span>
-        <b style={availableQty <= 4 ? styles.lowQty : undefined}>
-          {availableQty}
-        </b>
+        <b className={availableQty <= 4 ? 'ap-low-qty' : ''}>{availableQty}</b>
 
-        <label style={styles.activeLabel}>
-          <input
-            type="checkbox"
-            checked={isActive}
-            onChange={(event) => setIsActive(event.target.checked)}
-          />
+        <label className="ap-active-label">
+          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
           {isActive ? 'Активен' : 'Отключён'}
         </label>
 
-        <div style={styles.variantActions}>
-          <button
-            type="button"
-            onClick={handleUpdateVariant}
-            disabled={isSaving}
-            style={styles.smallAction}
-          >
+        <div className="ap-variant-actions">
+          <button type="button" onClick={handleUpdateVariant} disabled={isSaving} className="ap-small-action">
             Сохранить
           </button>
         </div>
       </div>
 
-      <div style={styles.stockActionRow}>
-        <select
-          value={movementType}
-          onChange={(event) =>
-            setMovementType(event.target.value as 'income' | 'adjustment')
-          }
-          style={styles.input}
-        >
+      <div className="ap-stock-action-row">
+        <select value={movementType} onChange={(e) => setMovementType(e.target.value as 'income' | 'adjustment')} className="ap-input">
           <option value="income">income — Поступление</option>
           <option value="adjustment">adjustment — Коррекция</option>
         </select>
 
-        <input
-          value={qty}
-          onChange={(event) => setQty(event.target.value)}
-          type="number"
-          placeholder={movementType === 'income' ? 'qty > 0' : 'можно +/-'}
-          style={styles.input}
-        />
-
-        <input
-          value={comment}
-          onChange={(event) => setComment(event.target.value)}
-          placeholder="Комментарий"
-          style={styles.input}
-        />
+        <input value={qty}     onChange={(e) => setQty(e.target.value)}     type="number" placeholder={movementType === 'income' ? 'qty > 0' : 'можно +/-'} className="ap-input" />
+        <input value={comment} onChange={(e) => setComment(e.target.value)}              placeholder="Комментарий" className="ap-input" />
 
         <button
           type="button"
           onClick={handleAddStock}
           disabled={isSaving || qty.trim().length === 0}
-          style={{
-            ...styles.smallActionDark,
-            ...(isSaving || qty.trim().length === 0
-              ? styles.saveButtonDisabled
-              : {}),
-          }}
+          className="ap-small-action-dark"
         >
           Провести движение
         </button>
       </div>
 
-      {error && <div style={styles.error}>{error}</div>}
-      {message && <div style={styles.success}>{message}</div>}
+      {error   && <div className="ap-error">{error}</div>}
+      {message && <div className="ap-success">{message}</div>}
     </div>
   )
 }
 
-function SummaryMetric({
-  label,
-  value,
-  tone,
-  className,
-}: {
-  label: string
-  value: string
-  className?: string
-  tone?: 'pink'
-}) {
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  SummaryMetric · Metric                                                       */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function SummaryMetric({ label, value, tone }: { label: string; value: string; tone?: 'pink' }) {
   return (
-    <div className={className} style={styles.summaryMetric}>
+    <div className="ap-summary-metric">
       <span>{label}</span>
-      <b style={tone === 'pink' ? styles.pinkText : undefined}>{value}</b>
+      <b className={tone === 'pink' ? 'ap-pink' : ''}>{value}</b>
     </div>
   )
 }
 
-function Metric({
-  label,
-  value,
-  tone,
-  className,
-}: {
-  label: string
-  value: string
-  tone?: 'pink'
-  className?: string
-}) {
+function Metric({ label, value, tone }: { label: string; value: string; tone?: 'pink' }) {
   return (
-    <div className={className} style={styles.metric}>
+    <div className="ap-metric">
       <span>{label}</span>
-      <b style={tone === 'pink' ? styles.pinkText : undefined}>{value}</b>
+      <b className={tone === 'pink' ? 'ap-pink' : ''}>{value}</b>
     </div>
   )
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  Pure helpers                                                                 */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 function getProductStats(product: AdminProduct) {
-  const totalQty = product.product_variants.reduce(
-    (sum, variant) => sum + Number(variant.total_qty),
-    0
-  )
+  const totalQty    = product.product_variants.reduce((s, v) => s + Number(v.total_qty), 0)
+  const reservedQty = product.product_variants.reduce((s, v) => s + Number(v.reserved_qty), 0)
+  const active      = product.product_variants.filter((v) => v.is_active)
 
-  const reservedQty = product.product_variants.reduce(
-    (sum, variant) => sum + Number(variant.reserved_qty),
-    0
-  )
+  const zeroVariants = active.filter((v) => Number(v.total_qty) - Number(v.reserved_qty) <= 0).length
+  const lowVariants  = active.filter((v) => { const a = Number(v.total_qty) - Number(v.reserved_qty); return a > 0 && a <= 4 }).length
 
-  const activeVariants = product.product_variants.filter(
-    (variant) => variant.is_active
-  )
-
-  const zeroVariants = activeVariants.filter((variant) => {
-    const available = Number(variant.total_qty) - Number(variant.reserved_qty)
-    return available <= 0
-  }).length
-
-  const lowVariants = activeVariants.filter((variant) => {
-    const available = Number(variant.total_qty) - Number(variant.reserved_qty)
-    return available > 0 && available <= 4
-  }).length
-
-  return {
-    totalQty,
-    reservedQty,
-    availableQty: Math.max(0, totalQty - reservedQty),
-    zeroVariants,
-    lowVariants,
-  }
+  return { totalQty, reservedQty, availableQty: Math.max(0, totalQty - reservedQty), zeroVariants, lowVariants }
 }
 
-function getCategoryName(product: AdminProduct) {
-  if (Array.isArray(product.categories)) {
-    return product.categories[0]?.name ?? 'Без категории'
-  }
-
+function getCategoryName(product: AdminProduct): string {
+  if (Array.isArray(product.categories)) return product.categories[0]?.name ?? 'Без категории'
   return product.categories?.name ?? 'Без категории'
-}
-
-function getProductLetter(name: string) {
-  return name.trim()[0]?.toUpperCase() ?? 'U'
-}
-
-function getExportDate() {
-  const date = new Date()
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-
-  return `${year}-${month}-${day}_${hours}-${minutes}`
-}
-
-function toCsv(rows: Array<Record<string, string>>) {
-  if (rows.length === 0) {
-    return ''
-  }
-
-  const headers = Object.keys(rows[0])
-
-  const headerLabels: Record<string, string> = {
-    product_name: 'Товар',
-    category: 'Категория',
-    material: 'Материал',
-    product_status: 'Статус товара',
-    product_total_qty: 'Всего по товару',
-    product_reserved_qty: 'Резерв по товару',
-    product_available_qty: 'Доступно по товару',
-    product_low_variants: 'Вариантов с низким остатком',
-    product_zero_variants: 'Вариантов в нуле',
-    variant_size: 'Размер',
-    variant_color: 'Цвет',
-    sku: 'SKU',
-    variant_status: 'Статус варианта',
-    total_qty: 'Всего',
-    reserved_qty: 'Резерв',
-    available_qty: 'Доступно',
-    stock_status: 'Статус остатка',
-  }
-
-  const headerRow = headers.map((header) =>
-    escapeCsv(headerLabels[header] ?? header)
-  )
-
-  const dataRows = rows.map((row) =>
-    headers.map((header) => escapeCsv(row[header] ?? '')).join(';')
-  )
-
-  return [headerRow.join(';'), ...dataRows].join('\n')
-}
-
-function escapeCsv(value: string) {
-  const normalizedValue = String(value)
-    .replace(/\r?\n|\r/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  const escapedValue = normalizedValue.replace(/"/g, '""')
-
-  return `"${escapedValue}"`
-}
-
-const styles: Record<string, CSSProperties> = {
-  pageBlock: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-  },
-  categoryTabs: {
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap',
-  },
-  categoryTab: {
-    minHeight: '38px',
-    border: 0,
-    borderRadius: '999px',
-    background: 'transparent',
-    color: 'var(--inkMute)',
-    padding: '0 14px',
-    fontSize: '13px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  categoryTabActive: {
-    background: '#1f1238',
-    color: '#ffffff',
-  },
-  toolbar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '16px',
-    flexWrap: 'wrap',
-  },
-  searchBox: {
-    width: 'min(100%, 430px)',
-    height: '38px',
-    borderRadius: '999px',
-    background: '#ffffff',
-    border: '1px solid var(--border)',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '9px',
-    padding: '0 12px',
-  },
-  searchIcon: {
-    color: 'var(--inkMute)',
-    fontSize: '17px',
-    fontWeight: 900,
-  },
-  searchInput: {
-    flex: 1,
-    minWidth: 0,
-    border: 0,
-    background: 'transparent',
-    color: 'var(--ink)',
-    fontSize: '13px',
-    fontWeight: 700,
-  },
-  clearSearchButton: {
-    width: '24px',
-    height: '24px',
-    border: 0,
-    borderRadius: '999px',
-    background: '#f1ebff',
-    color: 'var(--inkMute)',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '16px',
-    fontWeight: 900,
-    cursor: 'pointer',
-    flex: '0 0 auto',
-  },
-  exportButton: {
-    height: '38px',
-    border: '1px solid var(--border)',
-    borderRadius: '999px',
-    background: '#ffffff',
-    color: 'var(--ink)',
-    padding: '0 14px',
-    fontSize: '13px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  exportButtonDisabled: {
-    opacity: 0.55,
-    cursor: 'not-allowed',
-  },
-  toolbarRight: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    flexWrap: 'wrap',
-  },
-  stockTabs: {
-    display: 'flex',
-    gap: '4px',
-    padding: '4px',
-    borderRadius: '999px',
-    background: '#f1ebff',
-  },
-  stockTab: {
-    minHeight: '30px',
-    border: 0,
-    borderRadius: '999px',
-    background: 'transparent',
-    color: 'var(--inkMute)',
-    padding: '0 12px',
-    fontSize: '12px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  stockTabActive: {
-    background: '#ffffff',
-    color: 'var(--ink)',
-    boxShadow: 'var(--shadow-soft)',
-  },
-  checkboxLabel: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '8px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 800,
-  },
-  newButton: {
-    height: '38px',
-    border: 0,
-    borderRadius: '999px',
-    background: '#1f1238',
-    color: '#ffffff',
-    padding: '0 16px',
-    fontSize: '13px',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  summaryStrip: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-    gap: '10px',
-  },
-  summaryMetric: {
-    background: '#ffffff',
-    border: '1px solid var(--border)',
-    borderRadius: '14px',
-    padding: '12px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-    color: 'var(--inkMute)',
-    fontSize: '11px',
-    fontWeight: 900,
-    textTransform: 'uppercase',
-  },
-  pinkText: {
-    color: '#ff62d2',
-  },
-  productList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  productCard: {
-  overflow: 'hidden',
-  borderRadius: '16px',
-  borderWidth: '1px',
-  borderStyle: 'solid',
-  borderColor: 'var(--border)',
-  background: '#ffffff',
-},
-productCardExpanded: {
-  borderColor: 'var(--accent)',
-},
-productCardEditing: {
-  borderColor: 'var(--accent)',
-  boxShadow: '0 0 0 1px rgba(112,0,255,0.16), 0 18px 42px rgba(112,0,255,0.1)',
-},
-  productRow: {
-    width: '100%',
-    minHeight: '92px',
-    display: 'grid',
-    gridTemplateColumns:
-      '66px minmax(240px, 1fr) 110px 110px 110px 100px auto',
-    gap: '18px',
-    alignItems: 'center',
-    padding: '14px 18px',
-    border: 0,
-    background: '#ffffff',
-    color: 'var(--ink)',
-    textAlign: 'left',
-    cursor: 'pointer',
-  },
-  productArt: {
-    width: '64px',
-    height: '64px',
-    borderRadius: '12px',
-    overflow: 'hidden',
-    background: '#f1ebff',
-    flex: '0 0 auto',
-  },
-  productImage: {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-  },
-  productPlaceholder: {
-    width: '100%',
-    height: '100%',
-    background:
-      'linear-gradient(135deg, #f1ebff 0%, #ffffff 100%)',
-    color: 'var(--accent)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: 'var(--font-display)',
-    fontSize: '24px',
-    fontWeight: 800,
-  },
-  productNameCell: {
-    minWidth: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-  },
-  metric: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-    color: 'var(--inkMute)',
-    fontSize: '11px',
-    fontWeight: 900,
-    textTransform: 'uppercase',
-  },
-  rowActions: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: '8px',
-    flexWrap: 'wrap',
-  },
-  productRowActive: {
-    background: '#fbf8ff',
-  },
-  lightButtonActive: {
-    background: '#1f1238',
-    borderColor: '#1f1238',
-    color: '#ffffff',
-    boxShadow: '0 10px 22px rgba(31,18,56,0.18)',
-  },
-  productGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  cardsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
-    gap: '14px',
-    alignItems: 'stretch',
-  },
-  cardMode: {
-    overflow: 'hidden',
-    borderRadius: '18px',
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: 'var(--border)',
-    background: '#ffffff',
-    boxShadow: 'var(--shadow-soft)',
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: '360px',
-  },
-  cardModeActive: {
-    borderColor: 'var(--accent)',
-    boxShadow:
-      '0 0 0 1px rgba(112,0,255,0.16), 0 18px 42px rgba(112,0,255,0.1)',
-  },
-  cardModeImageWrap: {
-    position: 'relative',
-    height: '150px',
-    background: '#f1ebff',
-    overflow: 'hidden',
-    flex: '0 0 auto',
-  },
-  cardModeImage: {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-  },
-  cardModePlaceholder: {
-    width: '100%',
-    height: '100%',
-    background:
-      'radial-gradient(circle at 20% 10%, rgba(112,0,255,0.16), transparent 30%), linear-gradient(135deg, #f1ebff 0%, #ffffff 100%)',
-    color: 'var(--accent)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: 'var(--font-display)',
-    fontSize: '42px',
-    fontWeight: 800,
-  },
-  cardModeStatusActive: {
-    position: 'absolute',
-    left: '12px',
-    top: '12px',
-    borderRadius: '999px',
-    background: '#dcfce7',
-    color: '#166534',
-    padding: '6px 10px',
-    fontSize: '12px',
-    fontWeight: 900,
-  },
-  cardModeStatusInactive: {
-    position: 'absolute',
-    left: '12px',
-    top: '12px',
-    borderRadius: '999px',
-    background: '#fee2e2',
-    color: '#dc2626',
-    padding: '6px 10px',
-    fontSize: '12px',
-    fontWeight: 900,
-  },
-  cardModeBody: {
-    padding: '14px',
-    display: 'flex',
-    flexDirection: 'column',
-    flex: 1,
-  },
-  cardModeCategory: {
-    color: 'var(--inkMute)',
-    fontSize: '12px',
-    fontWeight: 900,
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-    marginBottom: '8px',
-  },
-  cardModeTitle: {
-    margin: 0,
-    color: 'var(--ink)',
-    fontFamily: 'var(--font-display)',
-    fontSize: '19px',
-    lineHeight: 1.16,
-    fontWeight: 700,
-    letterSpacing: '-0.02em',
-  },
-  cardModeDescription: {
-    minHeight: '42px',
-    margin: '10px 0 14px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    lineHeight: 1.45,
-    fontWeight: 700,
-  },
-  cardModeMeta: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-    gap: '8px',
-    marginBottom: '14px',
-  },
-  cardModeMetaItem: {
-    minWidth: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '3px',
-    color: 'var(--inkMute)',
-    fontSize: '11px',
-    fontWeight: 800,
-  },
-  cardModeButton: {
-    width: '100%',
-    minHeight: '42px',
-    marginTop: 'auto',
-    border: 0,
-    borderRadius: '999px',
-    background: '#1f1238',
-    color: '#ffffff',
-    fontSize: '13px',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  cardModeButtonActive: {
-    background: 'var(--accent)',
-  },
-  modeNoticeStock: {
-    borderRadius: '14px',
-    border: '1px solid var(--border)',
-    background: '#ffffff',
-    padding: '12px 16px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 700,
-  },
-  modeNoticeCards: {
-    borderRadius: '14px',
-    border: '1px solid rgba(112,0,255,0.22)',
-    background: '#fbf8ff',
-    padding: '12px 16px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 700,
-  },
-  inventoryExpanded: {
-    padding: '0 18px 18px',
-  },
-  productEditPanel: {
-    borderRadius: '18px',
-    border: '1px solid var(--border)',
-    background: '#ffffff',
-    padding: '24px',
-  },
-  editHero: {
-    minHeight: '118px',
-    borderRadius: '16px',
-    border: '1px solid var(--border)',
-    background: '#ffffff',
-    padding: '20px',
-    marginBottom: '20px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '20px',
-    alignItems: 'center',
-  },
-  editHeroLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '18px',
-    minWidth: 0,
-  },
-  editBreadcrumb: {
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 800,
-    marginBottom: '8px',
-  },
-  editTitle: {
-    margin: '0 0 12px',
-    fontFamily: 'var(--font-display)',
-    color: 'var(--ink)',
-    fontSize: '28px',
-    fontWeight: 700,
-    letterSpacing: '-0.02em',
-  },
-  editMetrics: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(4, minmax(90px, 1fr))',
-    gap: '20px',
-  },
-  editHeroActions: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: '8px',
-    flexWrap: 'wrap',
-  },
-  dangerButton: {
-    minHeight: '32px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    border: '1px solid #ffc4d6',
-    background: '#ffffff',
-    color: '#e11d48',
-    borderRadius: '999px',
-    padding: '0 12px',
-    fontSize: '12px',
-    fontWeight: 800,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  lightButton: {
-    minHeight: '32px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: '1px',
-    borderStyle: 'solid',
-    borderColor: 'var(--border)',
-    background: '#ffffff',
-    color: 'var(--ink)',
-    borderRadius: '999px',
-    padding: '0 12px',
-    fontSize: '12px',
-    fontWeight: 800,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  chevron: {
-    color: 'var(--inkMute)',
-    fontSize: '16px',
-    fontWeight: 900,
-  },
-  expanded: {
-    padding: '0 18px 18px',
-    display: 'grid',
-    gridTemplateColumns: 'minmax(0, 0.95fr) minmax(0, 1.05fr)',
-    gap: '18px',
-  },
-  createCard: {
-    background: '#ffffff',
-    border: '1px solid var(--border)',
-    borderRadius: '16px',
-    padding: '18px',
-  },
-  createHead: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '14px',
-    marginBottom: '14px',
-  },
-  editorCard: {
-    background: '#ffffff',
-    border: '1px solid var(--border)',
-    borderRadius: '16px',
-    padding: '24px',
-  },
-  panelHead: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '14px',
-    alignItems: 'flex-start',
-    marginBottom: '16px',
-  },
-  panelTitle: {
-    margin: 0,
-    fontFamily: 'var(--font-display)',
-    color: 'var(--ink)',
-    fontSize: '18px',
-    fontWeight: 700,
-    letterSpacing: '-0.02em',
-  },
-  panelHint: {
-    margin: '5px 0 0',
-    color: 'var(--inkMute)',
-    fontSize: '12px',
-    fontWeight: 900,
-    letterSpacing: '0.06em',
-    textTransform: 'uppercase',
-  },
-  editGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: '14px',
-  },
-  label: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '7px',
-    color: 'var(--inkMute)',
-    fontSize: '12px',
-    fontWeight: 900,
-    textTransform: 'uppercase',
-  },
-  labelWide: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '7px',
-    color: 'var(--inkMute)',
-    fontSize: '12px',
-    fontWeight: 900,
-    textTransform: 'uppercase',
-    gridColumn: '1 / -1',
-  },
-  input: {
-    height: '44px',
-    border: 0,
-    borderRadius: '10px',
-    background: '#f1ebff',
-    color: 'var(--ink)',
-    padding: '0 14px',
-    fontSize: '14px',
-    fontWeight: 700,
-    textTransform: 'none',
-  },
-  textarea: {
-    minHeight: '108px',
-    border: 0,
-    borderRadius: '10px',
-    background: '#f1ebff',
-    color: 'var(--ink)',
-    padding: '12px 14px',
-    fontSize: '14px',
-    fontWeight: 700,
-    resize: 'vertical',
-    textTransform: 'none',
-  },
-  switchLabel: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '8px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 800,
-  },
-  saveButton: {
-    marginTop: '14px',
-    minHeight: '42px',
-    border: 0,
-    borderRadius: '999px',
-    background: '#1f1238',
-    color: '#ffffff',
-    padding: '0 16px',
-    fontSize: '13px',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  darkButton: {
-    minHeight: '42px',
-    border: 0,
-    borderRadius: '999px',
-    background: '#1f1238',
-    color: '#ffffff',
-    padding: '0 16px',
-    fontSize: '13px',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  saveButtonDisabled: {
-    background: '#9ca3af',
-    cursor: 'not-allowed',
-  },
-  createVariantBox: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
-    gap: '10px',
-    marginBottom: '14px',
-  },
-  variantTable: {
-    overflow: 'hidden',
-    borderRadius: '14px',
-    border: '1px solid var(--border)',
-  },
-  variantHeader: {
-    minHeight: '38px',
-    display: 'grid',
-    gridTemplateColumns: '90px 110px minmax(160px, 1fr) 74px 74px 86px 118px 110px',
-    alignItems: 'center',
-    background: '#f1ebff',
-    color: 'var(--inkMute)',
-    padding: '0 12px',
-    fontSize: '11px',
-    fontWeight: 900,
-    textTransform: 'uppercase',
-  },
-  variantRowWrap: {
-    borderTop: '1px solid var(--border)',
-  },
-  variantRow: {
-    minHeight: '48px',
-    display: 'grid',
-    gridTemplateColumns: '90px 110px minmax(160px, 1fr) 74px 74px 86px 118px 110px',
-    alignItems: 'center',
-    gap: '0',
-    padding: '8px 12px',
-    background: '#ffffff',
-    color: 'var(--ink)',
-    fontSize: '13px',
-  },
-  variantInput: {
-    width: 'calc(100% - 8px)',
-    height: '34px',
-    border: 0,
-    borderRadius: '9px',
-    background: '#f7f4ff',
-    color: 'var(--ink)',
-    padding: '0 10px',
-    fontSize: '13px',
-    fontWeight: 700,
-  },
-  activeLabel: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-    color: 'var(--inkMute)',
-    fontSize: '12px',
-    fontWeight: 800,
-  },
-  lowQty: {
-    color: '#ff62d2',
-  },
-  variantActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-  },
-  smallAction: {
-    minHeight: '32px',
-    border: 0,
-    borderRadius: '999px',
-    background: '#f1ebff',
-    color: 'var(--ink)',
-    padding: '0 10px',
-    fontSize: '12px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  smallActionDark: {
-    minHeight: '38px',
-    border: 0,
-    borderRadius: '999px',
-    background: '#1f1238',
-    color: '#ffffff',
-    padding: '0 12px',
-    fontSize: '12px',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  stockActionRow: {
-    display: 'grid',
-    gridTemplateColumns: '180px 110px minmax(180px, 1fr) 160px',
-    gap: '10px',
-    padding: '0 12px 12px',
-    background: '#ffffff',
-  },
-  emptyVariant: {
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 800,
-  },
-  error: {
-    marginTop: '12px',
-    background: '#fee2e2',
-    color: '#991b1b',
-    padding: '11px 12px',
-    borderRadius: '12px',
-    fontSize: '13px',
-    fontWeight: 800,
-    textTransform: 'none',
-  },
-  success: {
-    marginTop: '12px',
-    background: '#dcfce7',
-    color: '#166534',
-    padding: '11px 12px',
-    borderRadius: '12px',
-    fontSize: '13px',
-    fontWeight: 800,
-    textTransform: 'none',
-  },
-  emptyCard: {
-    background: '#ffffff',
-    border: '1px solid var(--border)',
-    borderRadius: '18px',
-    padding: '42px',
-    textAlign: 'center',
-  },
-  emptyMark: {
-    width: '52px',
-    height: '52px',
-    borderRadius: '18px',
-    margin: '0 auto 12px',
-    background: 'var(--chip)',
-    color: 'var(--accent)',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '28px',
-    fontWeight: 800,
-  },
-  emptyTitle: {
-    margin: '0 0 6px',
-    fontFamily: 'var(--font-display)',
-    color: 'var(--ink)',
-    fontSize: '24px',
-    fontWeight: 700,
-  },
-  emptyText: {
-    margin: 0,
-    color: 'var(--inkMute)',
-    fontSize: '14px',
-  },
 }

@@ -34,6 +34,23 @@ create or replace trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
+-- Track whether a user has created a password after the first email login.
+alter table public.employees
+  add column if not exists password_set_at timestamptz;
+
+create or replace function public.mark_password_set()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.employees
+     set password_set_at = now()
+   where id = auth.uid();
+end;
+$$;
+
 
 -- ─── 2. Seed a first admin ───────────────────────────────────
 --

@@ -39,6 +39,20 @@ export const DELIVERY_TYPE_LABELS: Record<DeliveryType, string> = {
   courier: 'Курьер',
 }
 
+type Rel<
+  FKName extends string,
+  Cols extends string[],
+  RefTable extends string,
+  RefCols extends string[],
+  OneToOne extends boolean = false,
+> = {
+  foreignKeyName: FKName
+  columns: Cols
+  isOneToOne: OneToOne
+  referencedRelation: RefTable
+  referencedColumns: RefCols
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -53,6 +67,7 @@ export type Database = {
           city:        string | null
           office:      string | null
           is_admin:    boolean
+          password_set_at: string | null
           created_at:  string
         }
         Insert: {
@@ -65,13 +80,16 @@ export type Database = {
           city?:       string | null
           office?:     string | null
           is_admin?:   boolean
+          password_set_at?: string | null
         }
         Update: Partial<Database['public']['Tables']['employees']['Insert']>
+        Relationships: never[]
       }
       categories: {
         Row:    { id: string; name: string; sort: number }
         Insert: { id?: string; name: string; sort?: number }
         Update: Partial<Database['public']['Tables']['categories']['Insert']>
+        Relationships: never[]
       }
       products: {
         Row: {
@@ -97,6 +115,9 @@ export type Database = {
           is_active?:   boolean
         }
         Update: Partial<Database['public']['Tables']['products']['Insert']>
+        Relationships: [
+          Rel<'products_category_id_fkey', ['category_id'], 'categories', ['id']>,
+        ]
       }
       product_variants: {
         Row: {
@@ -122,6 +143,9 @@ export type Database = {
           is_active?:    boolean
         }
         Update: Partial<Database['public']['Tables']['product_variants']['Insert']>
+        Relationships: [
+          Rel<'product_variants_product_id_fkey', ['product_id'], 'products', ['id']>,
+        ]
       }
       product_limits: {
         Row: {
@@ -140,6 +164,9 @@ export type Database = {
           department?:     string | null
         }
         Update: Partial<Database['public']['Tables']['product_limits']['Insert']>
+        Relationships: [
+          Rel<'product_limits_product_id_fkey', ['product_id'], 'products', ['id']>,
+        ]
       }
       carts: {
         Row: {
@@ -151,6 +178,9 @@ export type Database = {
         }
         Insert: { id?: string; employee_id: string; status?: string }
         Update: Partial<Database['public']['Tables']['carts']['Insert']>
+        Relationships: [
+          Rel<'carts_employee_id_fkey', ['employee_id'], 'employees', ['id']>,
+        ]
       }
       cart_items: {
         Row: {
@@ -169,6 +199,11 @@ export type Database = {
           qty?:       number
         }
         Update: Partial<Database['public']['Tables']['cart_items']['Insert']>
+        Relationships: [
+          Rel<'cart_items_cart_id_fkey',    ['cart_id'],    'carts',            ['id']>,
+          Rel<'cart_items_product_id_fkey', ['product_id'], 'products',         ['id']>,
+          Rel<'cart_items_variant_id_fkey', ['variant_id'], 'product_variants', ['id']>,
+        ]
       }
       orders: {
         Row: {
@@ -216,6 +251,9 @@ export type Database = {
           received_at?:      string | null
           cancelled_at?:     string | null
         }
+        Relationships: [
+          Rel<'orders_employee_id_fkey', ['employee_id'], 'employees', ['id']>,
+        ]
       }
       order_items: {
         Row: {
@@ -242,6 +280,11 @@ export type Database = {
           qty:           number
         }
         Update: never
+        Relationships: [
+          Rel<'order_items_order_id_fkey',   ['order_id'],   'orders',           ['id']>,
+          Rel<'order_items_product_id_fkey', ['product_id'], 'products',         ['id']>,
+          Rel<'order_items_variant_id_fkey', ['variant_id'], 'product_variants', ['id']>,
+        ]
       }
       stock_movements: {
         Row: {
@@ -264,6 +307,11 @@ export type Database = {
           created_by?:     string | null
         }
         Update: never
+        Relationships: [
+          Rel<'stock_movements_variant_id_fkey',  ['variant_id'],  'product_variants', ['id']>,
+          Rel<'stock_movements_order_id_fkey',    ['order_id'],    'orders',           ['id']>,
+          Rel<'stock_movements_created_by_fkey',  ['created_by'],  'employees',        ['id']>,
+        ]
       }
     }
     Views: {
@@ -271,12 +319,54 @@ export type Database = {
         Row: Database['public']['Tables']['product_variants']['Row'] & {
           available_qty: number
         }
+        Relationships: [
+          Rel<'product_variants_product_id_fkey', ['product_id'], 'products', ['id']>,
+        ]
+      }
+    }
+    Functions: {
+      create_merch_order: {
+        Args: {
+          p_items:            { variant_id: string; qty: number }[]
+          p_delivery_type:    DeliveryType
+          p_delivery_address: string | null
+          p_phone:            string | null
+          p_comment:          string | null
+        }
+        Returns: string
+      }
+      admin_update_order: {
+        Args: {
+          p_order_id:        string
+          p_status:          OrderStatus
+          p_admin_comment:   string | null
+          p_tracking_number: string | null
+        }
+        Returns: unknown
+      }
+      update_my_profile: {
+        Args: {
+          p_full_name:  string
+          p_phone:      string | null
+          p_department: string | null
+          p_position:   string | null
+          p_city:       string | null
+          p_office:     string | null
+        }
+        Returns: unknown
+      }
+      mark_password_set: {
+        Args: Record<PropertyKey, never>
+        Returns: void
       }
     }
     Enums: {
       order_status:  OrderStatus
       delivery_type: DeliveryType
       movement_type: MovementType
+    }
+    CompositeTypes: {
+      [_ in never]: never
     }
   }
 }

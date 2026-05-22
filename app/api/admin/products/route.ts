@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
           material: cleanText(body.material),
           category_id: cleanText(body.category_id),
           image_url: cleanText(body.image_url),
-          images: cleanText(body.image_url) ? [cleanText(body.image_url)] : [],
+          images: cleanText(body.image_url) ? [cleanText(body.image_url) as string] : [],
           is_active: body.is_active ?? true,
         })
         .select('id')

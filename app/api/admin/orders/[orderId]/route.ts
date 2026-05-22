@@ -1,15 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-
-type OrderStatus =
-  | 'new'
-  | 'review'
-  | 'confirmed'
-  | 'assembling'
-  | 'shipped'
-  | 'received'
-  | 'cancelled'
-  | 'rejected'
+import type { OrderStatus } from '@/lib/supabase/types'
 
 type UpdateOrderPayload = {
   status?: OrderStatus

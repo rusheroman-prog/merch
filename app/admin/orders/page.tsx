@@ -1,8 +1,8 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { needsPasswordSetup } from '@/lib/auth'
 import AdminOrdersClient, { type AdminOrder } from './AdminOrdersClient'
-import type { CSSProperties } from 'react'
 
 export default async function AdminOrdersPage() {
   const supabase = await createClient()
@@ -15,6 +15,10 @@ export default async function AdminOrdersPage() {
     redirect('/login')
   }
 
+  if (await needsPasswordSetup(supabase, user.id)) {
+    redirect('/set-password')
+  }
+
   const { data: employee, error: employeeError } = await supabase
     .from('employees')
     .select('id, email, full_name, is_admin')
@@ -23,10 +27,11 @@ export default async function AdminOrdersPage() {
 
   if (employeeError) {
     return (
-      <main style={styles.page}>
-        <section style={styles.errorCard}>
-          <h1 style={styles.errorTitle}>Не удалось проверить роль</h1>
-          <p style={styles.errorText}>{employeeError.message}</p>
+      <main className="page-error">
+        <section className="error-card">
+          <div className="error-card-icon">!</div>
+          <h1 className="error-title">Не удалось проверить роль</h1>
+          <p className="error-text">{employeeError.message}</p>
         </section>
       </main>
     )
@@ -34,15 +39,15 @@ export default async function AdminOrdersPage() {
 
   if (!employee?.is_admin) {
     return (
-      <main style={styles.page}>
-        <section style={styles.errorCard}>
-          <h1 style={styles.errorTitle}>Доступ запрещён</h1>
-          <p style={styles.errorText}>
+      <main className="page-error">
+        <section className="error-card">
+          <div className="error-card-icon">🔒</div>
+          <h1 className="error-title">Доступ запрещён</h1>
+          <p className="error-text">
             Эта страница доступна только администраторам.
           </p>
-
-          <Link href="/catalog" style={styles.backLink}>
-            Вернуться в каталог
+          <Link href="/catalog" className="error-back-link">
+            ← Вернуться в каталог
           </Link>
         </section>
       </main>
@@ -102,27 +107,21 @@ export default async function AdminOrdersPage() {
   const stockAlertCount =
     productsForStock?.reduce((sum, product) => {
       const variants = product.product_variants ?? []
-
       const lowCount = variants.filter((variant) => {
-        if (!variant.is_active) {
-          return false
-        }
-
-        const available =
-          Number(variant.total_qty) - Number(variant.reserved_qty)
-
+        if (!variant.is_active) return false
+        const available = Number(variant.total_qty) - Number(variant.reserved_qty)
         return available > 0 && available <= 4
       }).length
-
       return sum + lowCount
     }, 0) ?? 0
 
   if (error) {
     return (
-      <main style={styles.page}>
-        <section style={styles.errorCard}>
-          <h1 style={styles.errorTitle}>Не удалось загрузить заказы</h1>
-          <p style={styles.errorText}>{error.message}</p>
+      <main className="page-error">
+        <section className="error-card">
+          <div className="error-card-icon">!</div>
+          <h1 className="error-title">Не удалось загрузить заказы</h1>
+          <p className="error-text">{error.message}</p>
         </section>
       </main>
     )
@@ -135,39 +134,4 @@ export default async function AdminOrdersPage() {
       stockAlertCount={stockAlertCount}
     />
   )
-}
-
-const styles: Record<string, CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    background: '#f5f5f7',
-    padding: '32px',
-    fontFamily:
-      'Inter, Arial, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-  },
-  errorCard: {
-    maxWidth: '640px',
-    margin: '80px auto',
-    background: '#ffffff',
-    borderRadius: '20px',
-    padding: '28px',
-    boxShadow: '0 14px 40px rgba(0,0,0,0.07)',
-  },
-  errorTitle: {
-    margin: '0 0 12px',
-    fontSize: '24px',
-    fontWeight: 800,
-    color: '#991b1b',
-  },
-  errorText: {
-    margin: '0 0 16px',
-    color: '#374151',
-    fontSize: '15px',
-    lineHeight: 1.5,
-  },
-  backLink: {
-    color: '#7c3aed',
-    fontWeight: 800,
-    textDecoration: 'none',
-  },
 }

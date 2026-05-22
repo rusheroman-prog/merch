@@ -1,10 +1,10 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { needsPasswordSetup } from '@/lib/auth'
 import CatalogClient, {
   type CatalogProduct,
   type CatalogVariant,
 } from './CatalogClient'
-import type { CSSProperties } from 'react'
 
 export default async function CatalogPage() {
   const supabase = await createClient()
@@ -17,9 +17,13 @@ export default async function CatalogPage() {
     redirect('/login')
   }
 
+  if (await needsPasswordSetup(supabase, user.id)) {
+    redirect('/set-password')
+  }
+
   const { data: employee } = await supabase
     .from('employees')
-    .select('is_admin, phone, city, office')
+    .select('full_name, is_admin, phone, city, office, department')
     .eq('id', user.id)
     .maybeSingle()
 
@@ -59,10 +63,11 @@ export default async function CatalogPage() {
 
   if (error) {
     return (
-      <main style={styles.page}>
-        <section style={styles.errorCard}>
-          <h1 style={styles.errorTitle}>Не удалось загрузить каталог</h1>
-          <p style={styles.errorText}>{error.message}</p>
+      <main className="page-error">
+        <section className="error-card">
+          <div className="error-card-icon">!</div>
+          <h1 className="error-title">Не удалось загрузить каталог</h1>
+          <p className="error-text">{error.message}</p>
         </section>
       </main>
     )
@@ -107,6 +112,8 @@ export default async function CatalogPage() {
     <CatalogClient
       products={products}
       userEmail={user.email ?? null}
+      userName={employee?.full_name ?? null}
+      userDepartment={employee?.department ?? null}
       isAdmin={Boolean(employee?.is_admin)}
       checkoutDefaults={{
         deliveryType: 'office',
@@ -115,34 +122,4 @@ export default async function CatalogPage() {
       }}
     />
   )
-}
-
-const styles: Record<string, CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    background: '#f5f5f7',
-    padding: '32px',
-    fontFamily:
-      'Inter, Arial, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
-  },
-  errorCard: {
-    maxWidth: '640px',
-    margin: '80px auto',
-    background: '#ffffff',
-    borderRadius: '20px',
-    padding: '28px',
-    boxShadow: '0 14px 40px rgba(0,0,0,0.07)',
-  },
-  errorTitle: {
-    margin: '0 0 12px',
-    fontSize: '24px',
-    fontWeight: 800,
-    color: '#991b1b',
-  },
-  errorText: {
-    margin: 0,
-    color: '#374151',
-    fontSize: '15px',
-    lineHeight: 1.5,
-  },
 }

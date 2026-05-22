@@ -2,19 +2,13 @@ import AppNav from '@/components/AppNav'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import type { CSSProperties } from 'react'
+import { needsPasswordSetup } from '@/lib/auth'
+import { decline, getProductLetter } from '@/lib/utils'
+import type { DeliveryType, OrderStatus } from '@/lib/supabase/types'
 
-type OrderStatus =
-  | 'new'
-  | 'review'
-  | 'confirmed'
-  | 'assembling'
-  | 'shipped'
-  | 'received'
-  | 'cancelled'
-  | 'rejected'
-
-type DeliveryType = 'office' | 'pvz' | 'pickup' | 'courier'
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  Types                                                                       */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 type OrderItem = {
   id: string
@@ -48,43 +42,53 @@ type Order = {
   order_items: OrderItem[]
 }
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  Constants                                                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 const statusLabels: Record<OrderStatus, string> = {
-  new: 'Новый',
-  review: 'На проверке',
-  confirmed: 'Подтверждён',
+  new:        'Новый',
+  review:     'На проверке',
+  confirmed:  'Подтверждён',
   assembling: 'Собирается',
-  shipped: 'Отправлен',
-  received: 'Получен',
-  cancelled: 'Отменён',
-  rejected: 'Отклонён',
+  shipped:    'Отправлен',
+  received:   'Получен',
+  cancelled:  'Отменён',
+  rejected:   'Отклонён',
+}
+
+const statusPillClass: Record<OrderStatus, string> = {
+  new:        'pill pill-amber',
+  review:     'pill pill-amber',
+  confirmed:  'pill pill-blue',
+  assembling: 'pill pill-blue',
+  shipped:    'pill pill-green',
+  received:   'pill pill-green',
+  cancelled:  'pill pill-red',
+  rejected:   'pill pill-red',
 }
 
 const deliveryLabels: Record<DeliveryType, string> = {
-  office: 'В офис',
-  pvz: 'ПВЗ / филиал',
-  pickup: 'Самовывоз',
+  office:  'В офис',
+  pvz:     'ПВЗ / филиал',
+  pickup:  'Самовывоз',
   courier: 'Курьер',
 }
 
 const flowStatuses: OrderStatus[] = [
-  'new',
-  'review',
-  'confirmed',
-  'assembling',
-  'shipped',
-  'received',
+  'new', 'review', 'confirmed', 'assembling', 'shipped', 'received',
 ]
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  Page                                                                        */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 export default async function OrdersPage() {
   const supabase = await createClient()
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+  if (await needsPasswordSetup(supabase, user.id)) redirect('/set-password')
 
   const { data: employee } = await supabase
     .from('employees')
@@ -92,255 +96,228 @@ export default async function OrdersPage() {
     .eq('id', user.id)
     .maybeSingle()
 
-  const { data, error } = await supabase
+  const { data: rawOrders, error } = await supabase
     .from('orders')
-    .select(
-      `
-      id,
-      order_number,
-      status,
-      delivery_type,
-      delivery_address,
-      full_name,
-      phone,
-      email,
-      city,
-      department,
-      comment,
-      admin_comment,
-      tracking_number,
-      created_at,
-      confirmed_at,
-      shipped_at,
-      received_at,
-      cancelled_at,
-      order_items (
-        id,
-        product_id,
-        product_name,
-        size,
-        color,
-        sku,
-        qty
-      )
-    `
-    )
+    .select(`
+      id, order_number, status, delivery_type, delivery_address,
+      full_name, phone, email, city, department,
+      comment, admin_comment, tracking_number,
+      created_at, confirmed_at, shipped_at, received_at, cancelled_at,
+      order_items ( id, product_id, product_name, size, color, sku, qty )
+    `)
     .eq('employee_id', user.id)
     .order('created_at', { ascending: false })
 
+  const isAdmin = Boolean(employee?.is_admin)
+
+  /* ── Error state ───────────────────────────────────────────────────────── */
   if (error) {
     return (
-      <main style={styles.page}>
-        <SiteHeader isAdmin={Boolean(employee?.is_admin)} />
-
-        <section style={styles.errorCard}>
-          <div style={styles.emptyMark}>!</div>
-          <h1 style={styles.emptyTitle}>Не удалось загрузить заказы</h1>
-          <p style={styles.emptyText}>{error.message}</p>
-
-          <Link href="/catalog" style={styles.primaryLink}>
-            Вернуться в каталог
-          </Link>
-        </section>
-      </main>
+      <div>
+        <PageHeader isAdmin={isAdmin} />
+        <div className="orders-content">
+          <div className="orders-empty" style={{ maxWidth: 640, margin: '0 auto' }}>
+            <div className="empty-mark">!</div>
+            <h1 className="section-title" style={{ margin: '12px 0 8px' }}>Не удалось загрузить заказы</h1>
+            <p style={{ color: 'var(--inkMute)', marginBottom: 20 }}>{error.message}</p>
+            <Link href="/catalog" className="btn btn-accent btn-md">Вернуться в каталог</Link>
+          </div>
+        </div>
+      </div>
     )
   }
 
-  const orders = ((data ?? []) as unknown) as Order[]
+  const orders        = (rawOrders ?? []) as Order[]
+  const activeOrders  = orders.filter(o => !['received','cancelled','rejected'].includes(o.status)).length
+  const doneOrders    = orders.filter(o => o.status === 'received').length
 
-  const activeOrders = orders.filter(
-    (order) => !['received', 'cancelled', 'rejected'].includes(order.status)
-  ).length
-
-  const completedOrders = orders.filter(
-    (order) => order.status === 'received'
-  ).length
-
+  /* ── Main render ───────────────────────────────────────────────────────── */
   return (
-    <main style={styles.page}>
-      <SiteHeader isAdmin={Boolean(employee?.is_admin)} />
+    <div>
+      <PageHeader isAdmin={isAdmin} />
 
-      <section style={styles.orders}>
-        <header style={styles.ordersHead}>
+      <div className="orders-content">
+
+        {/* ── Heading ── */}
+        <header className="orders-head">
           <div>
-            <div style={styles.kicker}>Мои заказы</div>
-
-            <h1 style={styles.display}>История и статусы</h1>
-
-            <p style={styles.lead}>
-              Здесь отображаются ваши заявки на корпоративный мерч, текущий
-              статус обработки и детали получения.
+            <span className="kicker">Мои заказы</span>
+            <h1 className="display" style={{ marginTop: 10, marginBottom: 10 }}>
+              История и статусы
+            </h1>
+            <p className="lead" style={{ marginBottom: 0 }}>
+              Ваши заявки на корпоративный мерч, текущий статус обработки и детали получения.
             </p>
           </div>
-
-          <Link href="/catalog" style={styles.ghostButton}>
+          <Link href="/catalog" className="btn btn-ghost btn-md" style={{ whiteSpace: 'nowrap', marginTop: 8 }}>
             ← В каталог
           </Link>
         </header>
 
-        <section style={styles.statRow}>
-          <StatCard label="Всего заказов" value={String(orders.length)} />
-          <StatCard label="В работе" value={String(activeOrders)} />
-          <StatCard label="Получено" value={String(completedOrders)} />
-        </section>
+        {/* ── Stats ── */}
+        <div className="stat-row">
+          <StatCard label="Всего заказов"  value={orders.length} />
+          <StatCard label="В работе"       value={activeOrders} />
+          <StatCard label="Получено"       value={doneOrders} />
+        </div>
 
+        {/* ── Orders list ── */}
         {orders.length === 0 ? (
-          <section style={styles.emptyCard}>
-            <div style={styles.emptyMark}>+</div>
-
-            <h2 style={styles.emptyTitle}>Заказов пока нет</h2>
-
-            <p style={styles.emptyText}>
+          <div className="orders-empty">
+            <div className="empty-mark">+</div>
+            <h2 className="section-title" style={{ margin: '14px 0 10px' }}>Заказов пока нет</h2>
+            <p style={{ color: 'var(--inkMute)', marginBottom: 20 }}>
               Перейдите в каталог, выберите мерч и оформите первую заявку.
             </p>
-
-            <Link href="/catalog" style={styles.primaryLink}>
-              Перейти в каталог
-            </Link>
-          </section>
+            <Link href="/catalog" className="btn btn-accent btn-md">Перейти в каталог</Link>
+          </div>
         ) : (
-          <section style={styles.ordersList}>
-            {orders.map((order) => (
+          <div className="orders-list">
+            {orders.map(order => (
               <OrderCard key={order.id} order={order} />
             ))}
-          </section>
+          </div>
         )}
-      </section>
-    </main>
+
+      </div>
+    </div>
   )
 }
 
-function SiteHeader({ isAdmin }: { isAdmin: boolean }) {
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  PageHeader — server-renderable site header                                 */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function PageHeader({ isAdmin }: { isAdmin: boolean }) {
   return (
-    <header style={styles.siteHead}>
-      <div style={styles.headInner}>
-        <Link href="/catalog" style={styles.brand}>
-          <img src="/brand/uzum-logo.svg" alt="Uzum" style={styles.logo} />
-
-          <span style={styles.brandName}>
-            uzum <span style={styles.brandNameSoft}>мерч</span>
+    <header className="site-head">
+      <div className="head-inner">
+        <Link href="/catalog" className="brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <span className="brand-mark">
+            <img src="/brand/uzum-logo.svg" alt="Uzum" width={32} height={32} />
           </span>
-
-          <span style={styles.brandSub}>внутренний портал</span>
+          <span className="brand-name">
+            uzum <span className="brand-name-soft">мерч</span>
+          </span>
+          <span className="brand-sub">внутренний портал</span>
         </Link>
 
-        <AppNav isAdmin={isAdmin} />
+        {/* AppNav renders <nav className="head-nav"> — centres itself in the 1fr column */}
+        <AppNav isAdmin={isAdmin} showLogout />
       </div>
     </header>
   )
 }
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  StatCard                                                                    */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="stat-card">
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  OrderCard                                                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 function OrderCard({ order }: { order: Order }) {
-  const items = order.order_items ?? []
-  const totalQty = items.reduce((sum, item) => sum + Number(item.qty), 0)
+  const items    = order.order_items ?? []
+  const totalQty = items.reduce((s, i) => s + Number(i.qty), 0)
 
   const isRejected = order.status === 'cancelled' || order.status === 'rejected'
   const isReceived = order.status === 'received'
 
   return (
-    <article style={styles.order}>
-      <div style={styles.orderTop}>
-        <div style={styles.orderMeta}>
-          <span style={styles.orderId}>#{order.order_number}</span>
-          <span style={styles.orderDate}>Оформлен {formatDateShort(order.created_at)}</span>
+    <article className="order">
+
+      {/* ── Top: number + date + status pill ── */}
+      <div className="order-top">
+        <div className="order-meta">
+          <span className="order-id">#{order.order_number}</span>
+          <span className="order-date">Оформлен {formatDateShort(order.created_at)}</span>
           {order.tracking_number && (
-            <span style={styles.orderTrack}>Трек: {order.tracking_number}</span>
+            <span className="order-track">Трек: {order.tracking_number}</span>
           )}
         </div>
-
-        <span style={getStatusStyle(order.status)}>
+        <span className={statusPillClass[order.status]}>
           {statusLabels[order.status]}
         </span>
       </div>
 
-      <div style={styles.orderMid}>
-        <div style={styles.orderThumbs}>
-          {items.slice(0, 4).map((item, index) => (
-            <div key={item.id} style={getThumbStyle(index)}>
+      {/* ── Mid: thumbs | items | delivery side ── */}
+      <div className="order-mid">
+        <div className="order-thumbs">
+          {items.slice(0, 4).map(item => (
+            <div key={item.id} className="order-thumb">
               {getProductLetter(item.product_name)}
             </div>
           ))}
         </div>
 
-        <div style={styles.orderItems}>
-          {items.map((item) => (
-            <div key={item.id} style={styles.orderItem}>
+        <div className="order-items">
+          {items.map(item => (
+            <div key={item.id} className="order-item">
               <b>{item.product_name}</b>
-              <span>
-                {formatVariant(item)} · {item.qty} шт.
-              </span>
+              <span>{formatVariant(item)} · {item.qty} шт.</span>
             </div>
           ))}
         </div>
 
-        <div style={styles.orderSide}>
-          <span style={styles.kicker}>
-            {isReceived ? 'Получено' : 'Получение'}
-          </span>
-
-          <p style={styles.orderSideMain}>
+        <div className="order-side">
+          <span className="kicker">{isReceived ? 'Получено' : 'Получение'}</span>
+          <p className="order-side-main">
             {isReceived && order.received_at
               ? formatDateShort(order.received_at)
               : deliveryLabels[order.delivery_type]}
           </p>
-
-          <p style={styles.orderSideMute}>
-            {order.delivery_address || 'Адрес не указан'}
-          </p>
+          <p className="order-side-mute">{order.delivery_address || 'Адрес не указан'}</p>
         </div>
       </div>
 
-      <div style={styles.timeline}>
+      {/* ── Progress timeline ── */}
+      <div className="order-timeline">
         {isRejected ? (
-          <div style={styles.finalStatusBox}>
-            {order.status === 'cancelled'
-              ? 'Заказ был отменён.'
-              : 'Заказ был отклонён.'}
+          <div className="order-final-status" style={{ gridColumn: '1 / -1' }}>
+            {order.status === 'cancelled' ? 'Заказ был отменён.' : 'Заказ был отклонён.'}
           </div>
         ) : (
-          flowStatuses.map((status) => {
-            const stepIndex = getStepIndex(status)
-            const currentIndex = getStepIndex(order.status)
-            const isDone = stepIndex < currentIndex
-            const isCurrent = stepIndex === currentIndex
+          flowStatuses.map(step => {
+            const stepIdx    = flowStatuses.indexOf(step)
+            const currentIdx = Math.max(0, flowStatuses.indexOf(order.status))
+            const isDone     = stepIdx < currentIdx
+            const isCurrent  = stepIdx === currentIdx
 
             return (
               <div
-                key={status}
-                style={{
-                  ...styles.timelineStep,
-                  ...(isDone ? styles.timelineStepDone : {}),
-                  ...(isCurrent ? styles.timelineStepCurrent : {}),
-                }}
+                key={step}
+                className={`timeline-step${isDone ? ' done' : ''}${isCurrent ? ' current' : ''}`}
               >
-                <span
-                  style={{
-                    ...styles.timelineDot,
-                    ...(isDone ? styles.timelineDotDone : {}),
-                    ...(isCurrent ? styles.timelineDotCurrent : {}),
-                  }}
-                />
-
-                <span style={styles.timelineText}>
-                  {getFlowLabel(status)}
-                </span>
+                <span className={`timeline-dot${isDone ? ' done' : ''}${isCurrent ? ' current' : ''}`} />
+                <span className="timeline-lbl">{getFlowLabel(step)}</span>
               </div>
             )
           })
         )}
       </div>
 
+      {/* ── Comments ── */}
       {(order.comment || order.admin_comment) && (
-        <div style={styles.comments}>
+        <div className="order-comments">
           {order.comment && (
-            <div style={styles.commentBox}>
+            <div className="comment-box">
               <span>Ваш комментарий</span>
               <p>{order.comment}</p>
             </div>
           )}
-
           {order.admin_comment && (
-            <div style={styles.adminCommentBox}>
+            <div className="comment-box comment-box-admin">
               <span>Комментарий администратора</span>
               <p>{order.admin_comment}</p>
             </div>
@@ -348,532 +325,59 @@ function OrderCard({ order }: { order: Order }) {
         </div>
       )}
 
-      <div style={styles.orderFoot}>
-        <div style={styles.orderFootInfo}>
+      {/* ── Footer ── */}
+      <div className="order-foot">
+        <div className="order-foot-info">
           <span>{totalQty} шт.</span>
           <span>·</span>
           <span>{items.length} {decline(items.length, ['позиция', 'позиции', 'позиций'])}</span>
         </div>
-
-        <div style={styles.orderActions}>
+        <div className="order-foot-actions">
           {order.tracking_number && (
-            <span style={styles.linkLike}>Трек-номер указан</span>
+            <span className="order-status-note">Трек-номер указан</span>
           )}
-
-          {isReceived && <span style={styles.linkLike}>Заказ завершён</span>}
-
+          {isReceived && (
+            <span className="order-status-note">Заказ завершён ✓</span>
+          )}
           {!isReceived && !isRejected && (
-            <span style={styles.linkLike}>Статус обновляется администратором</span>
+            <span style={{ color: 'var(--inkMute)', fontSize: '13px' }}>
+              Статус обновляется администратором
+            </span>
           )}
         </div>
       </div>
+
     </article>
   )
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={styles.statCard}>
-      <span>{label}</span>
-      <b>{value}</b>
-    </div>
-  )
-}
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  Helpers                                                                     */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 function formatVariant(item: OrderItem) {
-  const size = item.size || 'ONE SIZE'
-  const color = item.color || 'Без цвета'
-
-  return [color, size].filter(Boolean).join(' · ')
+  return [item.color || 'Без цвета', item.size || 'ONE SIZE']
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function formatDateShort(value: string) {
-  const date = new Date(value)
-
-  return date.toLocaleDateString('ru-RU', {
+  return new Date(value).toLocaleDateString('ru-RU', {
     timeZone: 'Asia/Tashkent',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
+    day:      'numeric',
+    month:    'short',
+    year:     'numeric',
   })
 }
 
-function getStepIndex(status: OrderStatus) {
-  const index = flowStatuses.indexOf(status)
-
-  return index >= 0 ? index : 0
-}
-
 function getFlowLabel(status: OrderStatus) {
-  if (status === 'new') return 'Заявка'
-  if (status === 'review') return 'Проверка'
-  if (status === 'confirmed') return 'Подтверждение'
-  if (status === 'assembling') return 'Сборка'
-  if (status === 'shipped') return 'Отправка'
-  if (status === 'received') return 'Получение'
-
-  return statusLabels[status]
-}
-
-function getProductLetter(name: string) {
-  return name.trim()[0]?.toUpperCase() ?? 'U'
-}
-
-function getThumbStyle(index: number): CSSProperties {
-  const backgrounds = [
-    'linear-gradient(135deg, #f1ebff 0%, #ffffff 100%)',
-    'linear-gradient(135deg, #ffe7f7 0%, #ffffff 100%)',
-    'linear-gradient(135deg, #e7f8ff 0%, #ffffff 100%)',
-    'linear-gradient(135deg, #fff4dd 0%, #ffffff 100%)',
-  ]
-
-  return {
-    width: '64px',
-    height: '64px',
-    borderRadius: 'var(--r-sm)',
-    background: backgrounds[index % backgrounds.length],
-    border: '1px solid var(--border)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: 'var(--accent)',
-    fontFamily: 'var(--font-display)',
-    fontSize: '24px',
-    fontWeight: 800,
-    flex: '0 0 auto',
+  const map: Partial<Record<OrderStatus, string>> = {
+    new:        'Заявка',
+    review:     'Проверка',
+    confirmed:  'Подтверждение',
+    assembling: 'Сборка',
+    shipped:    'Отправка',
+    received:   'Получение',
   }
-}
-
-function getStatusStyle(status: OrderStatus): CSSProperties {
-  const base: CSSProperties = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 'var(--r-pill)',
-    padding: '8px 12px',
-    fontSize: '13px',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-  }
-
-  if (status === 'new' || status === 'review') {
-    return {
-      ...base,
-      background: '#fff7dd',
-      color: '#92400e',
-    }
-  }
-
-  if (status === 'confirmed' || status === 'assembling') {
-    return {
-      ...base,
-      background: '#e8f1ff',
-      color: '#1e40af',
-    }
-  }
-
-  if (status === 'shipped' || status === 'received') {
-    return {
-      ...base,
-      background: '#dcfce7',
-      color: '#166534',
-    }
-  }
-
-  return {
-    ...base,
-    background: '#fee2e2',
-    color: '#991b1b',
-  }
-}
-
-function decline(count: number, words: [string, string, string]) {
-  const abs = Math.abs(count) % 100
-  const last = abs % 10
-
-  if (abs > 10 && abs < 20) {
-    return words[2]
-  }
-
-  if (last > 1 && last < 5) {
-    return words[1]
-  }
-
-  if (last === 1) {
-    return words[0]
-  }
-
-  return words[2]
-}
-
-const styles: Record<string, CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    background: 'var(--bg)',
-  },
-
-  siteHead: {
-    position: 'sticky',
-    top: 0,
-    zIndex: 50,
-    background: 'rgba(255,255,255,0.86)',
-    backdropFilter: 'blur(14px) saturate(140%)',
-    borderBottom: '1px solid var(--border)',
-  },
-  headInner: {
-    maxWidth: '1320px',
-    margin: '0 auto',
-    padding: '14px 48px',
-    display: 'grid',
-    gridTemplateColumns: 'auto 1fr',
-    gap: '24px',
-    alignItems: 'center',
-  },
-  brand: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '12px',
-    color: 'var(--ink)',
-  },
-  logo: {
-    width: '32px',
-    height: '32px',
-    objectFit: 'contain',
-  },
-  brandName: {
-    fontFamily: 'var(--font-display)',
-    fontWeight: 700,
-    fontSize: '20px',
-    letterSpacing: '-0.02em',
-    lineHeight: 1,
-    whiteSpace: 'nowrap',
-  },
-  brandNameSoft: {
-    color: 'var(--inkMute)',
-    fontWeight: 500,
-  },
-  brandSub: {
-    color: 'var(--inkMute)',
-    fontSize: '12px',
-    borderLeft: '1px solid var(--border)',
-    paddingLeft: '10px',
-    marginLeft: '2px',
-    whiteSpace: 'nowrap',
-  },
-
-  orders: {
-    maxWidth: '1320px',
-    margin: '0 auto',
-    padding: '56px 48px 64px',
-  },
-  ordersHead: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: '24px',
-    marginBottom: '22px',
-  },
-  kicker: {
-    fontSize: '11px',
-    fontWeight: 700,
-    letterSpacing: '0.12em',
-    textTransform: 'uppercase',
-    color: 'var(--inkMute)',
-    display: 'inline-block',
-  },
-  display: {
-    fontFamily: 'var(--font-display)',
-    fontWeight: 700,
-    fontSize: 'clamp(40px, 5vw, 68px)',
-    lineHeight: 1.02,
-    letterSpacing: '-0.025em',
-    margin: '10px 0 14px',
-    color: 'var(--ink)',
-  },
-  lead: {
-    fontSize: '17px',
-    color: 'var(--inkMute)',
-    maxWidth: '66ch',
-    margin: 0,
-    lineHeight: 1.55,
-  },
-  ghostButton: {
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--ink)',
-    borderRadius: 'var(--r-pill)',
-    padding: '12px 18px',
-    fontWeight: 800,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  primaryLink: {
-    minHeight: '44px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 'var(--r-pill)',
-    padding: '0 16px',
-    background: 'var(--accent)',
-    color: 'var(--accentInk)',
-    fontWeight: 800,
-    textDecoration: 'none',
-    marginTop: '16px',
-  },
-
-  statRow: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-    gap: '14px',
-    marginBottom: '24px',
-  },
-  statCard: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    padding: '18px',
-    boxShadow: 'var(--shadow-soft)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 700,
-  },
-
-  ordersList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-  },
-  order: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    padding: '24px 28px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-    boxShadow: 'var(--shadow-card)',
-  },
-  orderTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '18px',
-    alignItems: 'center',
-  },
-  orderMeta: {
-    display: 'flex',
-    gap: '16px',
-    alignItems: 'baseline',
-    flexWrap: 'wrap',
-  },
-  orderId: {
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-    fontSize: '13px',
-    color: 'var(--ink)',
-    fontWeight: 700,
-  },
-  orderDate: {
-    fontSize: '13px',
-    color: 'var(--inkMute)',
-    fontWeight: 700,
-  },
-  orderTrack: {
-    fontSize: '13px',
-    color: 'var(--accent)',
-    background: 'var(--chip)',
-    borderRadius: 'var(--r-pill)',
-    padding: '5px 9px',
-    fontWeight: 800,
-  },
-  orderMid: {
-    display: 'grid',
-    gridTemplateColumns: 'auto 1fr 240px',
-    gap: '24px',
-    alignItems: 'start',
-  },
-  orderThumbs: {
-    display: 'flex',
-    gap: '6px',
-    flexWrap: 'wrap',
-    maxWidth: '140px',
-  },
-  orderItems: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '7px',
-  },
-  orderItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '16px',
-    fontSize: '14px',
-    color: 'var(--ink)',
-  },
-  orderSide: {
-    minWidth: 0,
-  },
-  orderSideMain: {
-    margin: '4px 0 0',
-    fontSize: '14px',
-    color: 'var(--ink)',
-    fontWeight: 800,
-  },
-  orderSideMute: {
-    margin: '4px 0 0',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    lineHeight: 1.45,
-  },
-
-  timeline: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
-    gap: '8px',
-    paddingTop: '2px',
-  },
-  timelineStep: {
-    minWidth: 0,
-    display: 'flex',
-    alignItems: 'center',
-    gap: '7px',
-    borderRadius: 'var(--r-pill)',
-    border: '1px solid var(--border)',
-    background: 'var(--surfaceAlt)',
-    padding: '8px 9px',
-    color: 'var(--inkMute)',
-    fontSize: '12px',
-    fontWeight: 800,
-  },
-  timelineStepDone: {
-    background: 'var(--chip)',
-    color: 'var(--accent)',
-  },
-  timelineStepCurrent: {
-    borderColor: 'rgba(112,0,255,0.28)',
-    background: '#ffffff',
-    color: 'var(--ink)',
-  },
-  timelineDot: {
-    width: '9px',
-    height: '9px',
-    borderRadius: '50%',
-    background: '#d9d2ea',
-    flex: '0 0 auto',
-  },
-  timelineDotDone: {
-    background: 'var(--accent)',
-  },
-  timelineDotCurrent: {
-    background: 'var(--accent)',
-    boxShadow: '0 0 0 4px rgba(112,0,255,0.14)',
-  },
-  timelineText: {
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  finalStatusBox: {
-    gridColumn: '1 / -1',
-    borderRadius: 'var(--r-md)',
-    background: '#fee2e2',
-    color: '#991b1b',
-    padding: '12px',
-    fontSize: '14px',
-    fontWeight: 800,
-  },
-
-  comments: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: '12px',
-  },
-  commentBox: {
-    borderRadius: 'var(--r-md)',
-    background: 'var(--surfaceAlt)',
-    border: '1px solid var(--border)',
-    padding: '12px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-  },
-  adminCommentBox: {
-    borderRadius: 'var(--r-md)',
-    background: '#ecfdf5',
-    border: '1px solid rgba(22,101,52,0.12)',
-    padding: '12px',
-    color: '#166534',
-    fontSize: '13px',
-  },
-
-  orderFoot: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '16px',
-    alignItems: 'center',
-    paddingTop: '12px',
-    borderTop: '1px solid var(--border)',
-    flexWrap: 'wrap',
-  },
-  orderFootInfo: {
-    display: 'flex',
-    gap: '8px',
-    color: 'var(--inkMute)',
-    fontSize: '13px',
-    fontWeight: 800,
-  },
-  orderActions: {
-    display: 'flex',
-    gap: '12px',
-    flexWrap: 'wrap',
-  },
-  linkLike: {
-    color: 'var(--accent)',
-    fontSize: '13px',
-    fontWeight: 800,
-  },
-
-  emptyCard: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    padding: '42px',
-    textAlign: 'center',
-    boxShadow: 'var(--shadow-card)',
-  },
-  errorCard: {
-    maxWidth: '720px',
-    margin: '80px auto',
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--r-card)',
-    padding: '42px',
-    textAlign: 'center',
-    boxShadow: 'var(--shadow-card)',
-  },
-  emptyMark: {
-    width: '52px',
-    height: '52px',
-    borderRadius: '18px',
-    margin: '0 auto 12px',
-    background: 'var(--chip)',
-    color: 'var(--accent)',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '28px',
-    fontWeight: 800,
-  },
-  emptyTitle: {
-    margin: '0 0 6px',
-    fontFamily: 'var(--font-display)',
-    color: 'var(--ink)',
-    fontSize: '24px',
-    fontWeight: 700,
-  },
-  emptyText: {
-    margin: 0,
-    color: 'var(--inkMute)',
-    fontSize: '14px',
-  },
+  return map[status] ?? statusLabels[status]
 }

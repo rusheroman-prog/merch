@@ -1,13 +1,6 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createClient } from '@/lib/supabase/server'
 import type { EmailOtpType } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
-
-type CookieToSet = {
-  name: string
-  value: string
-  options?: CookieOptions
-}
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
@@ -20,24 +13,7 @@ export async function GET(request: NextRequest) {
   const nextParam = requestUrl.searchParams.get('next') ?? '/catalog'
   const next = nextParam.startsWith('/') ? nextParam : '/catalog'
 
-  const cookieStore = await cookies()
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll()
-        },
-        setAll(cookiesToSet: CookieToSet[]) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options)
-          })
-        },
-      },
-    }
-  )
+  const supabase = await createClient()
 
   let authError: string | null = null
 
@@ -59,11 +35,48 @@ export async function GET(request: NextRequest) {
       console.error('Supabase verifyOtp error:', error.message)
     }
   } else {
-    authError = 'No code or token_hash found in callback URL'
-    console.error('Supabase callback error:', authError)
+    const hashCallbackUrl = new URL('/auth/hash-callback', origin)
+    hashCallbackUrl.searchParams.set('next', next)
+    return new NextResponse(
+      `<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Завершаем вход</title>
+  </head>
+  <body>
+    <script>
+      var target = ${JSON.stringify(hashCallbackUrl.toString())};
+      window.location.replace(target + window.location.hash);
+    </script>
+  </body>
+</html>`,
+      {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+        },
+      }
+    )
   }
 
   if (!authError) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (user) {
+      const { data: employee } = await supabase
+        .from('employees')
+        .select('password_set_at')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (!employee?.password_set_at) {
+        return NextResponse.redirect(new URL('/set-password', origin))
+      }
+    }
+
     return NextResponse.redirect(new URL(next, origin))
   }
 
