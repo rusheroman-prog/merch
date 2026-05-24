@@ -251,6 +251,7 @@ input:focus, select:focus, textarea:focus {
   max-width: 56ch;
   margin: 0 0 24px;
   line-height: 1.55;
+  overflow-wrap: break-word;
 }
 
 /* ═══════════════════════════════════════════════
@@ -652,6 +653,7 @@ input:focus, select:focus, textarea:focus {
 
 .page-error {
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--surfaceAlt);
   display: flex;
   align-items: center;
@@ -697,6 +699,7 @@ input:focus, select:focus, textarea:focus {
   color: var(--inkMute);
   font-size: 15px;
   line-height: 1.55;
+  overflow-wrap: break-word;
 }
 
 .error-back-link {
@@ -2156,6 +2159,7 @@ input:focus, select:focus, textarea:focus {
   font-size: 14px;
   line-height: 1.45;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 /* ── Form ── */
@@ -2323,6 +2327,7 @@ input:focus, select:focus, textarea:focus {
   font-size: 13px;
   line-height: 1.45;
   font-weight: 700;
+  overflow-wrap: break-word;
 }
 
 .login-footer-note {
@@ -2349,7 +2354,11 @@ input:focus, select:focus, textarea:focus {
 @media (max-width: 520px) {
   .login-page {
     align-items: stretch;
-    padding: 12px;
+    padding:
+      max(12px, env(safe-area-inset-top))
+      max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
   }
   .login-shell {
     max-width: none;
@@ -2372,6 +2381,21 @@ input:focus, select:focus, textarea:focus {
   }
   .login-card-title { font-size: 30px; }
   .login-card-text  { font-size: 13px; }
+  .login-success {
+    border-radius: 20px;
+    padding: 18px;
+  }
+  .login-success-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 16px;
+    font-size: 24px;
+  }
+  .login-success-title { font-size: 22px; }
+  .login-email-box {
+    padding: 10px;
+    font-size: 13px;
+  }
   .login-form {
     min-height: 250px;
     gap: 12px;
@@ -2396,7 +2420,13 @@ input:focus, select:focus, textarea:focus {
 }
 
 @media (max-width: 380px) {
-  .login-page { padding: 8px; }
+  .login-page {
+    padding:
+      max(8px, env(safe-area-inset-top))
+      max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom))
+      max(8px, env(safe-area-inset-left));
+  }
   .login-shell { min-height: calc(100dvh - 16px); }
   .login-card {
     border-radius: 22px;
@@ -3023,8 +3053,10 @@ input:focus, select:focus, textarea:focus {
     line-height: 1.04;
   }
   .section-title { font-size: clamp(24px, 8vw, 32px); }
+  .lead { font-size: 15px; line-height: 1.5; }
 
   /* Header */
+  .site-head { padding-top: env(safe-area-inset-top); }
   .head-inner { padding: 10px var(--pad-x) 0; gap: 6px; }
   .brand { gap: 8px; }
   .brand-mark { width: 40px; height: 40px; flex-basis: 40px; }
@@ -3054,6 +3086,12 @@ input:focus, select:focus, textarea:focus {
   .grid-layout { gap: 16px; }
   .grid-head { flex-wrap: wrap; gap: 10px; }
   .grid-head > * { min-width: 0; }
+  .grid-sort {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
   .sort-select { width: 100%; }
   .cart-aside { border-radius: 24px; padding: 18px; }
 
@@ -3084,6 +3122,7 @@ input:focus, select:focus, textarea:focus {
   .profile-summary-card { padding: 20px; border-radius: 24px; }
   .profile-hero-actions > * { width: 100%; justify-content: center; }
   .profile-summary-row { grid-template-columns: 1fr; gap: 2px; }
+  .profile-save-btn { width: 100%; justify-content: center; }
 
   /* Welcome */
   .welcome { padding-top: 28px; }
@@ -3104,10 +3143,14 @@ input:focus, select:focus, textarea:focus {
   .welcome-grid   { grid-template-columns: 1fr; }
   .welcome-card   { padding: 16px; }
   .order-timeline { grid-template-columns: repeat(2, 1fr); }
+  .order-thumb     { width: 54px; height: 54px; font-size: 21px; }
   .head-cart      { display: none; } /* cart badge too wide — user scrolls to cart */
   .order          { padding: 14px 16px; }
   .cat-nav        { gap: 6px; }
   .cat-pill       { flex: 1 1 auto; justify-content: center; }
+  .page-error     { padding: 16px; align-items: stretch; }
+  .error-card     { border-radius: 24px; padding: 24px 20px; }
+  .error-title    { font-size: 20px; }
   .confirm-card   { grid-template-columns: 1fr; }
   .confirm-icon   { width: 42px; height: 42px; border-radius: 14px; }
   .orders-empty   { padding: 28px 18px; border-radius: 24px; }
@@ -3250,6 +3293,7 @@ input:focus, select:focus, textarea:focus {
 @media (max-width: 700px) {
   .ao-toolbar           { flex-direction: column; align-items: stretch; }
   .ao-toolbar-right     { width: 100%; justify-content: flex-start; }
+  .ao-search-box        { width: 100%; }
   .ao-table-header      { display: none; }
   .ao-row               { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px 16px; min-width: unset; }
   .ao-row .ao-checkbox-cell { flex: 0 0 auto; }
@@ -3260,6 +3304,11 @@ input:focus, select:focus, textarea:focus {
   .ao-row .ao-delivery-cell,
   .ao-row .ao-date-cell { flex: 1 1 100%; }
   .ao-row .ao-arrow-cell { flex: 0 0 auto; margin-left: auto; }
+  .ao-detail-panel      { min-width: 0; padding: 14px; }
+  .ao-detail-grid       { grid-template-columns: 1fr; }
+  .ao-info-grid         { grid-template-columns: 1fr; }
+  .ao-manage-grid       { grid-template-columns: 1fr; }
+  .ao-save-btn          { width: 100%; }
 }
 
 /* ── Admin Products ── */
@@ -3395,6 +3444,85 @@ input:focus, select:focus, textarea:focus {
 /* Admin Products — responsive */
 @media (max-width: 700px) {
   .ap-toolbar         { flex-direction: column; align-items: stretch; }
+  .ap-search-box      { width: 100%; }
   .ap-toolbar-right   { width: 100%; justify-content: flex-start; }
   .ap-summary-strip   { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ap-create-head     { flex-direction: column; }
+  .ap-edit-panel      { overflow-x: visible; padding: 14px; }
+  .ap-edit-hero       { min-width: 0; flex-direction: column; align-items: stretch; }
+  .ap-edit-hero-left  { align-items: flex-start; }
+  .ap-edit-metrics    { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .ap-expanded        { grid-template-columns: 1fr; overflow-x: visible; }
+  .ap-editor-card     { padding: 16px; }
+  .ap-edit-grid       { grid-template-columns: 1fr; }
+  .ap-create-variant-box { grid-template-columns: 1fr; }
+  .ap-save-btn,
+  .ap-dark-btn,
+  .ap-new-btn         { width: 100%; justify-content: center; }
+}
+
+@media (max-width: 520px) {
+  .admin-sidebar {
+    padding:
+      max(12px, env(safe-area-inset-top))
+      12px
+      10px;
+  }
+  .admin-brand-logo { width: 40px; height: 40px; }
+  .admin-brand-text { font-size: 18px; }
+  .admin-nav { gap: 6px; }
+  .admin-nav .admin-nav-link {
+    min-width: 122px;
+    min-height: 44px;
+    padding: 8px 10px;
+    gap: 8px;
+  }
+  .admin-nav-icon { width: 24px; height: 24px; }
+  .admin-nav-text { font-size: 13px; }
+  .admin-topbar { padding: 14px 12px; }
+  .admin-topbar-title { font-size: 22px; line-height: 1.08; }
+  .admin-topbar-sub { font-size: 11px; }
+  .admin-search {
+    height: 42px;
+    padding: 0 10px;
+  }
+  .admin-search-shortcut { display: none; }
+  .admin-mobile-logout { height: 42px; width: 100%; justify-content: center; }
+  .admin-content { padding: 12px; }
+
+  .ao-status-tabs,
+  .ap-cat-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin-inline: -12px;
+    padding-inline: 12px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ao-status-tabs::-webkit-scrollbar,
+  .ap-cat-tabs::-webkit-scrollbar { display: none; }
+  .ao-status-tab,
+  .ap-cat-tab { flex: 0 0 auto; }
+  .ao-toolbar-right,
+  .ap-toolbar-right { flex-direction: column; align-items: stretch; }
+  .ao-sort-label,
+  .ao-export-btn,
+  .ap-stock-tabs,
+  .ap-checkbox-label,
+  .ap-export-btn,
+  .ap-new-btn { width: 100%; }
+  .ao-sort-select { width: 100%; }
+  .ao-empty-card,
+  .ap-empty-card { padding: 28px 18px; border-radius: 16px; }
+  .ao-card-head,
+  .ap-panel-head { flex-direction: column; align-items: flex-start; }
+  .ao-detail-item { grid-template-columns: 32px minmax(0, 1fr); }
+  .ao-badge { min-width: 0; }
+  .ap-summary-strip { grid-template-columns: 1fr; }
+  .ap-cards-grid { grid-template-columns: 1fr; }
+  .ap-card { min-height: 0; }
+  .ap-card-meta { grid-template-columns: 1fr; }
+  .ap-edit-title { font-size: 24px; }
+  .ap-edit-hero-left { flex-direction: column; gap: 12px; }
+  .ap-edit-metrics { grid-template-columns: 1fr; }
 }
