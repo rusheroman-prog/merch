@@ -132,10 +132,7 @@ function LoginContent() {
     setSentEmail(null)
 
     try {
-      let redirectTo: string | undefined
-      if (typeof window !== 'undefined') {
-        redirectTo = `${window.location.origin}/auth/hash-callback`
-      }
+      const redirectTo = getEmailRedirectTo()
 
       const { error: signInError } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
@@ -331,6 +328,46 @@ function LoginStep({ value, label }: { value: string; label: string }) {
       <span>{label}</span>
     </div>
   )
+}
+
+function getEmailRedirectTo() {
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : undefined
+  const configuredOrigin = normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL)
+
+  if (configuredOrigin && (!isLocalOrigin(configuredOrigin) || isLocalOrigin(currentOrigin))) {
+    return `${configuredOrigin}/auth/hash-callback`
+  }
+
+  if (currentOrigin) {
+    return `${currentOrigin}/auth/hash-callback`
+  }
+
+  return '/auth/hash-callback'
+}
+
+function normalizeOrigin(value: string | undefined) {
+  if (!value) {
+    return null
+  }
+
+  try {
+    return new URL(value).origin
+  } catch {
+    return null
+  }
+}
+
+function isLocalOrigin(value: string | null | undefined) {
+  if (!value) {
+    return false
+  }
+
+  try {
+    const hostname = new URL(value).hostname
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  } catch {
+    return false
+  }
 }
 
 function getUrlErrorMessage(error: string, description: string | null) {

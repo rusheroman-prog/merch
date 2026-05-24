@@ -2,7 +2,27 @@ import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 
-export default async function HomePage() {
+type HomePageProps = {
+  searchParams: Promise<{
+    token_hash?: string
+    type?: string
+    next?: string
+  }>
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const params = await searchParams
+
+  if (params.token_hash) {
+    const callbackParams = new URLSearchParams({
+      token_hash: params.token_hash,
+      type: params.type ?? 'email',
+      next: params.next ?? '/set-password?reset=1',
+    })
+
+    redirect(`/auth/hash-callback?${callbackParams.toString()}`)
+  }
+
   const supabase = await createClient()
 
   const {
