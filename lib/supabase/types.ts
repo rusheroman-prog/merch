@@ -63,10 +63,13 @@ export type Database = {
           email:       string
           phone:       string | null
           department:  string | null
+          business_unit: string | null
           position:    string | null
+          hired_at:    string | null
           city:        string | null
           office:      string | null
           is_admin:    boolean
+          is_active:   boolean
           password_set_at: string | null
           created_at:  string
         }
@@ -76,14 +79,63 @@ export type Database = {
           email:       string
           phone?:      string | null
           department?: string | null
+          business_unit?: string | null
           position?:   string | null
+          hired_at?:    string | null
           city?:       string | null
           office?:     string | null
           is_admin?:   boolean
+          is_active?:  boolean
           password_set_at?: string | null
         }
         Update: Partial<Database['public']['Tables']['employees']['Insert']>
         Relationships: never[]
+      }
+      employee_directory: {
+        Row: {
+          id:            string
+          email:         string
+          full_name:     string
+          business_unit: string | null
+          position:      string | null
+          hired_at:      string
+          is_active:     boolean
+          created_at:    string
+          updated_at:    string
+        }
+        Insert: {
+          id?:            string
+          email:          string
+          full_name:      string
+          business_unit?: string | null
+          position?:      string | null
+          hired_at:       string
+          is_active?:     boolean
+        }
+        Update: Partial<Database['public']['Tables']['employee_directory']['Insert']>
+        Relationships: never[]
+      }
+      employee_audit_log: {
+        Row: {
+          id:                    string
+          employee_directory_id: string | null
+          actor_id:              string | null
+          action:                string
+          changed_fields:        Record<string, unknown>
+          created_at:            string
+        }
+        Insert: {
+          id?:                    string
+          employee_directory_id?: string | null
+          actor_id?:              string | null
+          action:                 string
+          changed_fields?:        Record<string, unknown>
+        }
+        Update: never
+        Relationships: [
+          Rel<'employee_audit_log_employee_directory_id_fkey', ['employee_directory_id'], 'employee_directory', ['id']>,
+          Rel<'employee_audit_log_actor_id_fkey', ['actor_id'], 'employees', ['id']>,
+        ]
       }
       categories: {
         Row:    { id: string; name: string; sort: number }
@@ -222,6 +274,11 @@ export type Database = {
           admin_comment:    string | null
           tracking_number:  string | null
           assigned_to:      string | null
+          shipping_places_count: number | null
+          shipping_weight_kg: number | null
+          shipping_package_type: string | null
+          shipping_printed_at: string | null
+          shipping_printed_by: string | null
           created_at:       string
           confirmed_at:     string | null
           shipped_at:       string | null
@@ -240,12 +297,20 @@ export type Database = {
           city?:             string | null
           department?:       string | null
           comment?:          string | null
+          shipping_places_count?: number | null
+          shipping_weight_kg?: number | null
+          shipping_package_type?: string | null
         }
         Update: Partial<Database['public']['Tables']['orders']['Insert']> & {
           status?:           OrderStatus
           admin_comment?:    string | null
           tracking_number?:  string | null
           assigned_to?:      string | null
+          shipping_places_count?: number | null
+          shipping_weight_kg?: number | null
+          shipping_package_type?: string | null
+          shipping_printed_at?: string | null
+          shipping_printed_by?: string | null
           confirmed_at?:     string | null
           shipped_at?:       string | null
           received_at?:      string | null
@@ -333,7 +398,18 @@ export type Database = {
           p_phone:            string | null
           p_comment:          string | null
         }
-        Returns: string
+        Returns: unknown
+      }
+      get_employee_merch_access: {
+        Args: {
+          p_email: string
+        }
+        Returns: Array<{
+          is_allowed: boolean
+          reason: string
+          hired_at: string | null
+          months_worked: number | null
+        }>
       }
       admin_update_order: {
         Args: {

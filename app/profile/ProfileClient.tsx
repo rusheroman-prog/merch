@@ -72,10 +72,10 @@ export default function ProfileClient({ profile }: ProfileClientProps) {
       <div className="profile-hero">
         <div className="profile-hero-main">
           <span className="kicker">Личный кабинет</span>
-          <h1 className="display" style={{ marginTop: 12, marginBottom: 14 }}>
+          <h1 className="display">
             Профиль сотрудника
           </h1>
-          <p className="lead" style={{ marginBottom: 0 }}>
+          <p className="lead">
             Эти данные используются при оформлении заявки на мерч: телефон,
             город и офис будут автоматически подставляться в корзину.
           </p>

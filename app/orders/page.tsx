@@ -116,10 +116,10 @@ export default async function OrdersPage() {
       <div>
         <PageHeader isAdmin={isAdmin} />
         <div className="orders-content">
-          <div className="orders-empty" style={{ maxWidth: 640, margin: '0 auto' }}>
+          <div className="orders-empty orders-empty-narrow">
             <div className="empty-mark">!</div>
-            <h1 className="section-title" style={{ margin: '12px 0 8px' }}>Не удалось загрузить заказы</h1>
-            <p style={{ color: 'var(--inkMute)', marginBottom: 20 }}>{error.message}</p>
+            <h1 className="section-title">Не удалось загрузить заказы</h1>
+            <p>{error.message}</p>
             <Link href="/catalog" className="btn btn-accent btn-md">Вернуться в каталог</Link>
           </div>
         </div>
@@ -142,14 +142,14 @@ export default async function OrdersPage() {
         <header className="orders-head">
           <div>
             <span className="kicker">Мои заказы</span>
-            <h1 className="display" style={{ marginTop: 10, marginBottom: 10 }}>
+            <h1 className="display">
               История и статусы
             </h1>
-            <p className="lead" style={{ marginBottom: 0 }}>
+            <p className="lead">
               Ваши заявки на корпоративный мерч, текущий статус обработки и детали получения.
             </p>
           </div>
-          <Link href="/catalog" className="btn btn-ghost btn-md" style={{ whiteSpace: 'nowrap', marginTop: 8 }}>
+          <Link href="/catalog" className="btn btn-ghost btn-md">
             ← В каталог
           </Link>
         </header>
@@ -165,8 +165,8 @@ export default async function OrdersPage() {
         {orders.length === 0 ? (
           <div className="orders-empty">
             <div className="empty-mark">+</div>
-            <h2 className="section-title" style={{ margin: '14px 0 10px' }}>Заказов пока нет</h2>
-            <p style={{ color: 'var(--inkMute)', marginBottom: 20 }}>
+            <h2 className="section-title">Заказов пока нет</h2>
+            <p>
               Перейдите в каталог, выберите мерч и оформите первую заявку.
             </p>
             <Link href="/catalog" className="btn btn-accent btn-md">Перейти в каталог</Link>
@@ -285,7 +285,7 @@ function OrderCard({ order }: { order: Order }) {
       {/* ── Progress timeline ── */}
       <div className="order-timeline">
         {isRejected ? (
-          <div className="order-final-status" style={{ gridColumn: '1 / -1' }}>
+          <div className="order-final-status">
             {order.status === 'cancelled' ? 'Заказ был отменён.' : 'Заказ был отклонён.'}
           </div>
         ) : (
@@ -341,7 +341,7 @@ function OrderCard({ order }: { order: Order }) {
             <span className="order-status-note">Заказ завершён ✓</span>
           )}
           {!isReceived && !isRejected && (
-            <span style={{ color: 'var(--inkMute)', fontSize: '13px' }}>
+            <span className="order-foot-mute">
               Статус обновляется администратором
             </span>
           )}

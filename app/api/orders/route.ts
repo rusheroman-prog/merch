@@ -14,6 +14,8 @@ type CheckoutPayload = {
   comment?: string
 }
 
+const MAX_UNIQUE_PRODUCTS = 3
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -56,6 +58,55 @@ export async function POST(request: NextRequest) {
         { error: 'В корзине есть некорректные позиции' },
         { status: 400 }
       )
+    }
+
+    if (items.some((item) => item.qty !== 1)) {
+      return NextResponse.json(
+        { error: 'one_unit_per_product_only' },
+        { status: 400 }
+      )
+    }
+
+    const { data: accessRows, error: accessError } = await supabase.rpc(
+      'get_employee_merch_access',
+      { p_email: user.email ?? '' }
+    )
+
+    if (accessError) {
+      return NextResponse.json({ error: accessError.message }, { status: 400 })
+    }
+
+    const access = Array.isArray(accessRows) ? accessRows[0] : null
+
+    if (!access?.is_allowed) {
+      return NextResponse.json(
+        { error: access?.reason ?? 'employee_not_allowed' },
+        { status: 403 }
+      )
+    }
+
+    const variantIds = items.map((item) => item.variant_id)
+    const { data: variants, error: variantsError } = await supabase
+      .from('product_variants')
+      .select('id, product_id')
+      .in('id', variantIds)
+
+    if (variantsError) {
+      return NextResponse.json({ error: variantsError.message }, { status: 400 })
+    }
+
+    if ((variants ?? []).length !== variantIds.length) {
+      return NextResponse.json({ error: 'product_is_not_available' }, { status: 400 })
+    }
+
+    const uniqueProductIds = new Set((variants ?? []).map((variant) => variant.product_id))
+
+    if (uniqueProductIds.size > MAX_UNIQUE_PRODUCTS) {
+      return NextResponse.json({ error: 'max_unique_products_exceeded' }, { status: 400 })
+    }
+
+    if (uniqueProductIds.size !== items.length) {
+      return NextResponse.json({ error: 'one_variant_per_product_only' }, { status: 400 })
     }
 
     const { data, error } = await supabase.rpc('create_merch_order', {

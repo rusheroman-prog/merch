@@ -44,9 +44,14 @@ export default async function CatalogPage() {
 
   const { data: employee } = await supabase
     .from('employees')
-    .select('full_name, is_admin, phone, city, office, department')
+    .select('full_name, is_admin, phone, city, office, department, business_unit, hired_at, is_active')
     .eq('id', user.id)
     .maybeSingle()
+
+  const { data: accessRows } = await supabase.rpc('get_employee_merch_access', {
+    p_email: user.email ?? '',
+  })
+  const access = Array.isArray(accessRows) ? accessRows[0] : null
 
   const defaultDeliveryAddress = [employee?.city, employee?.office]
     .filter(Boolean)
@@ -134,12 +139,18 @@ export default async function CatalogPage() {
       products={products}
       userEmail={user.email ?? null}
       userName={employee?.full_name ?? null}
-      userDepartment={employee?.department ?? null}
+      userDepartment={employee?.business_unit ?? employee?.department ?? null}
       isAdmin={Boolean(employee?.is_admin)}
       checkoutDefaults={{
         deliveryType: 'office',
         deliveryAddress: defaultDeliveryAddress,
         phone: employee?.phone ?? '',
+      }}
+      merchAccess={{
+        isAllowed: Boolean(access?.is_allowed),
+        reason: access?.reason ?? 'employee_not_in_directory',
+        hiredAt: access?.hired_at ?? employee?.hired_at ?? null,
+        monthsWorked: access?.months_worked ?? null,
       }}
     />
   )

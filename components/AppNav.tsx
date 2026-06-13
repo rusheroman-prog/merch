@@ -23,6 +23,7 @@ const navItems: NavItem[] = [
   { href: '/profile',         label: 'Профиль'      },
   { href: '/admin/orders',    label: 'Заказы',    adminOnly: true },
   { href: '/admin/products',  label: 'Товары',    adminOnly: true },
+  { href: '/admin/employees', label: 'Сотрудники', adminOnly: true },
 ]
 
 export default function AppNav({
@@ -64,8 +65,7 @@ export default function AppNav({
           type="button"
           onClick={handleLogout}
           disabled={loggingOut}
-          className="nav-link"
-          style={{ color: '#d71920', background: 'transparent', border: 0 }}
+          className="nav-link nav-link-logout"
         >
           {loggingOut ? 'Выходим…' : 'Выйти'}
         </button>

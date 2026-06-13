@@ -85,7 +85,7 @@ export default function ProductImageUploader({
           <div className="img-uploader-empty-icon">+</div>
           <div>
             <b>Фото не загружено</b>
-            <span style={{ display: 'block', marginTop: 2 }}>
+            <span className="block-mt-2">
               Выберите файл JPG, PNG, WEBP или GIF до 5 MB.
             </span>
           </div>

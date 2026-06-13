@@ -105,7 +105,7 @@ export default async function WelcomePage() {
         <section className="welcome-hero">
           <div>
             <span className="kicker">Welcome-pack · для новичков</span>
-            <h1 className="display" style={{ marginTop: 12 }}>
+            <h1 className="display">
               Здравствуйте,<br />мы вам кое-что собрали.
             </h1>
             <p className="lead">
@@ -169,8 +169,8 @@ export default async function WelcomePage() {
         </section>
 
         {/* ── CTA ── */}
-        <div style={{ textAlign: 'center', paddingTop: 16 }}>
-          <p style={{ color: 'var(--inkMute)', marginBottom: 20 }}>
+        <div className="welcome-cta">
+          <p>
             Хотите ещё мерча? В каталоге можно выбрать любые позиции.
           </p>
           <Link href="/catalog" className="btn btn-accent btn-lg">

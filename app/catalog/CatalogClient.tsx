@@ -45,6 +45,13 @@ type CheckoutDefaults = {
   phone: string
 }
 
+type MerchAccess = {
+  isAllowed: boolean
+  reason: string
+  hiredAt: string | null
+  monthsWorked: number | null
+}
+
 type CatalogClientProps = {
   products: CatalogProduct[]
   userEmail: string | null
@@ -52,6 +59,7 @@ type CatalogClientProps = {
   userDepartment: string | null
   isAdmin: boolean
   checkoutDefaults: CheckoutDefaults
+  merchAccess: MerchAccess
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -65,6 +73,8 @@ const deliveryLabels: Record<DeliveryType, string> = {
   courier: 'Курьер',
 }
 
+const MAX_UNIQUE_PRODUCTS = 3
+
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  CatalogClient                                                               */
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -76,6 +86,7 @@ export default function CatalogClient({
   userDepartment,
   isAdmin,
   checkoutDefaults,
+  merchAccess,
 }: CatalogClientProps) {
   /* Cart */
   const [cart, setCart] = useState<CartItem[]>([])
@@ -143,6 +154,10 @@ export default function CatalogClient({
       alert('Этот товар уже добавлен в корзину. Можно заказать только 1 единицу одного товара.')
       return
     }
+    if (cart.length >= MAX_UNIQUE_PRODUCTS) {
+      alert('Можно выбрать не больше трех уникальных позиций мерча.')
+      return
+    }
     setCart(cur => [...cur, { product, variant, qty: 1 }])
   }
 
@@ -153,6 +168,14 @@ export default function CatalogClient({
   /* Checkout */
   async function handleCheckout() {
     if (cart.length === 0) { setCheckoutError('Корзина пустая'); return }
+    if (!merchAccess.isAllowed) {
+      setCheckoutError(getMerchAccessMessage(merchAccess))
+      return
+    }
+    if (cart.length > MAX_UNIQUE_PRODUCTS) {
+      setCheckoutError('Можно выбрать не больше трех уникальных позиций мерча.')
+      return
+    }
 
     setIsSubmitting(true)
     setCheckoutError(null)
@@ -252,15 +275,20 @@ export default function CatalogClient({
         <section className="hero">
           <div className="hero-greeting">
             <span className="kicker">Корпоративный магазин · uzum</span>
-            <h1 className="display" style={{ marginTop: '12px' }}>
+            <h1 className="display">
               Привет, {firstName}.<br />
               <em>Что-нибудь</em> подберём?
             </h1>
             <p className="lead">
               Здесь корпоративный мерч, канцелярия и подарочные наборы.
               Бесплатно — нужно только оставить заявку.{' '}
-              Один товар можно заказать <b>в количестве одной штуки</b>.
+              Можно выбрать <b>до трех уникальных позиций</b>; разные размеры одного товара считаются одной позицией.
             </p>
+            {!merchAccess.isAllowed && (
+              <div className="form-error form-error-hero">
+                {getMerchAccessMessage(merchAccess)}
+              </div>
+            )}
             <div className="hero-actions">
               <button
                 type="button"
@@ -339,6 +367,7 @@ export default function CatalogClient({
             <div className="filters-note">
               <span className="kicker">Правила</span>
               <p>Один товар = одна штука. Нельзя заказать несколько единиц или несколько вариантов одного товара.</p>
+              <p>Максимум — 3 уникальные позиции. Мерч доступен сотрудникам со стажем больше 3 месяцев.</p>
             </div>
 
             <div className="filters-note">
@@ -375,7 +404,7 @@ export default function CatalogClient({
             <div id="catalog-grid" className="grid-layout">
               <div className="grid grid-cols">
                 {filteredProducts.length === 0 ? (
-                  <div className="empty" style={{ gridColumn: '1 / -1' }}>
+                  <div className="empty">
                     <div className="empty-mark">∅</div>
                     <h3>Товары не найдены</h3>
                     <p>Сбросьте поиск или выберите другую категорию.</p>
@@ -386,6 +415,7 @@ export default function CatalogClient({
                       key={product.id}
                       product={product}
                       isInCart={isProductInCart(product.id)}
+                      isBlocked={!merchAccess.isAllowed || cart.length >= MAX_UNIQUE_PRODUCTS}
                       onAddToCart={addToCart}
                     />
                   ))
@@ -402,6 +432,7 @@ export default function CatalogClient({
                 isSubmitting={isSubmitting}
                 checkoutError={checkoutError}
                 checkoutSuccess={checkoutSuccess}
+                merchAccess={merchAccess}
                 onRemove={removeFromCart}
                 onDeliveryTypeChange={setDeliveryType}
                 onDeliveryAddressChange={setDeliveryAddress}
@@ -425,10 +456,12 @@ export default function CatalogClient({
 function ProductCard({
   product,
   isInCart,
+  isBlocked,
   onAddToCart,
 }: {
   product: CatalogProduct
   isInCart: boolean
+  isBlocked: boolean
   onAddToCart: (product: CatalogProduct, variant: CatalogVariant) => void
 }) {
   const [selectedVariantId, setSelectedVariantId] = useState(
@@ -446,7 +479,7 @@ function ProductCard({
   const stockClass  = totalAvail > 4 ? 'card-stock-ok' : totalAvail > 0 ? 'card-stock-low' : 'card-stock-out'
   const stockText   = totalAvail > 0 ? `${totalAvail} шт.` : 'Нет в наличии'
 
-  const canAdd = !isInCart && !!selectedVariant && selectedVariant.available_qty > 0
+  const canAdd = !isBlocked && !isInCart && !!selectedVariant && selectedVariant.available_qty > 0
 
   return (
     <article className="card">
@@ -515,6 +548,7 @@ function CartAside({
   isSubmitting,
   checkoutError,
   checkoutSuccess,
+  merchAccess,
   onRemove,
   onDeliveryTypeChange,
   onDeliveryAddressChange,
@@ -531,6 +565,7 @@ function CartAside({
   isSubmitting: boolean
   checkoutError: string | null
   checkoutSuccess: string | null
+  merchAccess: MerchAccess
   onRemove: (variantId: string) => void
   onDeliveryTypeChange: (value: DeliveryType) => void
   onDeliveryAddressChange: (value: string) => void
@@ -542,8 +577,8 @@ function CartAside({
     <aside className="cart-aside" id="cart-aside">
       <div className="cart-header">
         <div>
-          <p className="aside-title" style={{ marginBottom: 4 }}>Корзина</p>
-          <p style={{ margin: 0, color: 'var(--inkMute)', fontSize: '13px' }}>
+          <p className="aside-title">Корзина</p>
+          <p className="cart-subtitle">
             {cart.length > 0
               ? `${cart.length} ${decline(cart.length, ['товар', 'товара', 'товаров'])}`
               : 'Пока пусто'}
@@ -557,7 +592,7 @@ function CartAside({
       {cart.length === 0 ? (
         <div className="cart-empty">
           <div className="cart-empty-mark">+</div>
-          <p style={{ margin: 0, color: 'var(--inkMute)', fontSize: '14px', lineHeight: 1.45 }}>
+          <p className="cart-empty-text">
             Добавьте товары из каталога, чтобы оформить заявку.
           </p>
         </div>
@@ -568,7 +603,7 @@ function CartAside({
               <div key={item.variant.id} className="cart-line">
                 <div className="cart-line-info">
                   <b>{item.product.name}</b>
-                  <span style={{ color: 'var(--inkMute)', fontSize: '13px' }}>
+                  <span className="cart-line-variant">
                     {formatVariant(item.variant)} · 1 шт.
                   </span>
                 </div>
@@ -586,6 +621,7 @@ function CartAside({
 
           <div className="cart-summary">
             <div className="sum-row"><span>Товаров</span><b>{cart.length}</b></div>
+            <div className="sum-row"><span>Лимит</span><b>{cart.length}/{MAX_UNIQUE_PRODUCTS}</b></div>
             <div className="sum-row"><span>Количество</span><b>{cart.length} шт.</b></div>
             <div className="sum-row"><span>Получение</span><b>{deliveryLabels[deliveryType]}</b></div>
           </div>
@@ -640,11 +676,14 @@ function CartAside({
             {checkoutError && (
               <div className="form-error">{checkoutError}</div>
             )}
+            {!merchAccess.isAllowed && (
+              <div className="form-error">{getMerchAccessMessage(merchAccess)}</div>
+            )}
 
             <button
               type="button"
               className="checkout-btn"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !merchAccess.isAllowed}
               onClick={onCheckout}
             >
               {isSubmitting ? 'Оформляем…' : 'Оформить заказ'}
@@ -758,7 +797,29 @@ function getCheckoutErrorMessage(error: string): string {
     return 'Можно заказать только 1 единицу одного товара.'
   if (error.includes('one_variant_per_product_only'))
     return 'Нельзя выбрать несколько вариантов одного товара.'
+  if (error.includes('max_unique_products_exceeded'))
+    return 'Можно выбрать не больше трех уникальных позиций мерча.'
+  if (error.includes('employee_tenure_too_short'))
+    return 'Мерч доступен сотрудникам, отработавшим больше 3 месяцев.'
+  if (error.includes('employee_not_in_directory') || error.includes('employee_inactive'))
+    return 'Ваш доступ к мерчу не найден в HR-реестре. Обратитесь к HR или администратору.'
   if (error.includes('product_is_not_available'))
     return 'Один из выбранных товаров сейчас недоступен для заказа.'
   return error || 'Не удалось оформить заказ'
+}
+
+function getMerchAccessMessage(access: MerchAccess) {
+  if (access.reason === 'employee_tenure_too_short') {
+    return 'Мерч доступен сотрудникам, отработавшим больше 3 месяцев.'
+  }
+
+  if (access.reason === 'employee_not_in_directory') {
+    return 'Ваш email не найден в HR-реестре сотрудников.'
+  }
+
+  if (access.reason === 'employee_inactive') {
+    return 'Ваш доступ к мерчу отключен. Обратитесь к HR или администратору.'
+  }
+
+  return 'Сейчас оформление мерча недоступно. Обратитесь к HR или администратору.'
 }

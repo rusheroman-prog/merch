@@ -173,7 +173,7 @@ function LoginContent() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/uzum-big-logo.webp" alt="Uzum" className="login-logo" />
             <span className="login-brand-text">
-              uzum <span style={{ fontWeight: 400 }}>мерч</span>
+              uzum <span className="fw-regular">мерч</span>
             </span>
           </a>
 
