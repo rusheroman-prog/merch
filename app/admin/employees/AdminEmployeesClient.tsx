@@ -2,7 +2,7 @@
 
 import AdminShell from '@/components/AdminShell'
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { getExportDate, toCsv } from '@/lib/utils'
 
 export type DirectoryEmployee = {
@@ -38,6 +38,8 @@ export default function AdminEmployeesClient({
   const [search,       setSearch]       = useState(queryFromUrl)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [unitFilter,   setUnitFilter]   = useState<string>('all')
+  const [editingId,    setEditingId]    = useState<string | null>(null)
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
 
   useEffect(() => { setSearch(queryFromUrl) }, [queryFromUrl])
 
@@ -103,8 +105,8 @@ export default function AdminEmployeesClient({
   }
 
   const statusTabs: { key: StatusFilter; label: string; count: number }[] = [
-    { key: 'all',      label: 'Все',      count: totals.total },
-    { key: 'active',   label: 'Активные', count: totals.active },
+    { key: 'all',      label: 'Все',       count: totals.total },
+    { key: 'active',   label: 'Активные',  count: totals.active },
     { key: 'inactive', label: 'Уволенные', count: totals.inactive },
   ]
 
@@ -120,10 +122,10 @@ export default function AdminEmployeesClient({
 
         {/* Summary */}
         <section className="ae-summary-strip">
-          <SummaryMetric label="Всего в реестре"  value={String(totals.total)} />
-          <SummaryMetric label="Активных"         value={String(totals.active)} />
-          <SummaryMetric label="Уволенных"        value={String(totals.inactive)} />
-          <SummaryMetric label="Подразделений"    value={String(totals.units)} />
+          <SummaryMetric label="Всего в реестре" value={String(totals.total)} />
+          <SummaryMetric label="Активных"        value={String(totals.active)} />
+          <SummaryMetric label="Уволенных"       value={String(totals.inactive)} />
+          <SummaryMetric label="Подразделений"   value={String(totals.units)} />
         </section>
 
         {/* Status tabs */}
@@ -170,8 +172,21 @@ export default function AdminEmployeesClient({
             >
               Экспорт CSV
             </button>
+
+            <button
+              type="button"
+              className="ae-new-btn"
+              onClick={() => { setEditingId(null); setIsCreateOpen((v) => !v) }}
+            >
+              + Добавить сотрудника
+            </button>
           </div>
         </section>
+
+        {/* Create panel */}
+        {isCreateOpen && (
+          <EmployeeEditor mode="create" onClose={() => setIsCreateOpen(false)} />
+        )}
 
         {/* Table / empty */}
         {filtered.length === 0 ? (
@@ -189,37 +204,176 @@ export default function AdminEmployeesClient({
               <div>Должность</div>
               <div>Принят</div>
               <div>Статус</div>
+              <div />
             </div>
 
             <div className="ae-table-body">
-              {filtered.map((employee) => (
-                <div key={employee.id} className="ae-row">
-                  <div className="ae-name-cell">
-                    <div className="ae-avatar">{getInitials(employee.full_name, employee.email)}</div>
-                    <div className="ae-name-text">
-                      <b>{employee.full_name || 'Без имени'}</b>
-                      <span>В реестре с {formatDate(employee.created_at)}</span>
-                    </div>
-                  </div>
+              {filtered.map((employee) => {
+                const isEditing = editingId === employee.id
+                return (
+                  <div key={employee.id} className="ae-row-group">
+                    <button
+                      type="button"
+                      onClick={() => { setIsCreateOpen(false); setEditingId(isEditing ? null : employee.id) }}
+                      className={`ae-row ae-row-button${isEditing ? ' ae-row-active' : ''}`}
+                    >
+                      <div className="ae-name-cell">
+                        <div className="ae-avatar">{getInitials(employee.full_name, employee.email)}</div>
+                        <div className="ae-name-text">
+                          <b>{employee.full_name || 'Без имени'}</b>
+                          <span>В реестре с {formatDate(employee.created_at)}</span>
+                        </div>
+                      </div>
 
-                  <div className="ae-cell-mute">{employee.email}</div>
-                  <div className="ae-cell-ink">{employee.business_unit || '—'}</div>
-                  <div className="ae-cell-mute">{employee.position || '—'}</div>
-                  <div className="ae-cell-mute">{formatDate(employee.hired_at)}</div>
+                      <div className="ae-cell-mute">{employee.email}</div>
+                      <div className="ae-cell-ink">{employee.business_unit || '—'}</div>
+                      <div className="ae-cell-mute">{employee.position || '—'}</div>
+                      <div className="ae-cell-mute">{formatDate(employee.hired_at)}</div>
 
-                  <div>
-                    <span className={`ae-badge${employee.is_active ? '' : ' ae-badge-off'}`}>
-                      {employee.is_active ? 'Активен' : 'Уволен'}
-                    </span>
+                      <div>
+                        <span className={`ae-badge${employee.is_active ? '' : ' ae-badge-off'}`}>
+                          {employee.is_active ? 'Активен' : 'Уволен'}
+                        </span>
+                      </div>
+
+                      <div className="ae-row-caret">{isEditing ? '⌃' : '⌄'}</div>
+                    </button>
+
+                    {isEditing && (
+                      <EmployeeEditor
+                        mode="edit"
+                        employee={employee}
+                        onClose={() => setEditingId(null)}
+                      />
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </section>
         )}
 
       </section>
     </AdminShell>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  EmployeeEditor — shared create/edit form                                     */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function EmployeeEditor({
+  mode,
+  employee,
+  onClose,
+}: {
+  mode: 'create' | 'edit'
+  employee?: DirectoryEmployee
+  onClose: () => void
+}) {
+  const router = useRouter()
+  const isCreate = mode === 'create'
+
+  const [fullName, setFullName] = useState(employee?.full_name ?? '')
+  const [email,    setEmail]    = useState(employee?.email ?? '')
+  const [unit,     setUnit]     = useState(employee?.business_unit ?? '')
+  const [position, setPosition] = useState(employee?.position ?? '')
+  const [hiredAt,  setHiredAt]  = useState(employee?.hired_at?.slice(0, 10) ?? '')
+  const [isActive, setIsActive] = useState(employee?.is_active ?? true)
+
+  const [isSaving, setIsSaving] = useState(false)
+  const [error,    setError]    = useState<string | null>(null)
+
+  async function handleSave() {
+    setIsSaving(true)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/admin/employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: isCreate ? 'create_employee' : 'update_employee',
+          id: employee?.id,
+          full_name: fullName,
+          email,
+          business_unit: unit,
+          position,
+          hired_at: hiredAt,
+          is_active: isActive,
+        }),
+      })
+
+      const result = await response.json()
+      if (!response.ok) { setError(result.error || 'Не удалось сохранить'); return }
+
+      onClose()
+      router.refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <section className={isCreate ? 'ae-editor ae-editor-create' : 'ae-editor'}>
+      {isCreate && (
+        <div className="ae-editor-head">
+          <h3 className="ae-editor-title">Новый сотрудник</h3>
+          <p className="ae-editor-hint">Запись попадёт в HR-реестр и синхронизируется с аккаунтом по email.</p>
+        </div>
+      )}
+
+      <div className="ae-editor-grid">
+        <label className="ae-field">
+          ФИО
+          <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Иван Иванов" className="ae-input" />
+        </label>
+
+        <label className="ae-field">
+          Email
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="ivan@uzum.uz"
+            disabled={!isCreate}
+            className="ae-input"
+          />
+          {!isCreate && <span className="ae-field-note">Email менять нельзя — это ключ привязки к аккаунту</span>}
+        </label>
+
+        <label className="ae-field">
+          Подразделение
+          <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="IT" className="ae-input" />
+        </label>
+
+        <label className="ae-field">
+          Должность
+          <input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Developer" className="ae-input" />
+        </label>
+
+        <label className="ae-field">
+          Дата найма
+          <input type="date" value={hiredAt} onChange={(e) => setHiredAt(e.target.value)} className="ae-input" />
+        </label>
+
+        <label className="ae-switch">
+          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+          Активен (работает в компании)
+        </label>
+      </div>
+
+      {error && <div className="ae-error">{error}</div>}
+
+      <div className="ae-editor-actions">
+        <button type="button" onClick={onClose} className="ae-cancel-btn">Отмена</button>
+        <button type="button" onClick={handleSave} disabled={isSaving} className="ae-save-btn">
+          {isSaving ? 'Сохраняем...' : isCreate ? 'Добавить' : 'Сохранить'}
+        </button>
+      </div>
+    </section>
   )
 }
 
