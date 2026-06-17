@@ -489,6 +489,42 @@ input:focus, select:focus, textarea:focus {
 .nav-link.is-on { color: var(--ink); background: var(--chip); }
 .nav-link-logout { color: #d71920; }
 
+/* Admin dropdown — collapses admin-only nav links into one chip */
+.nav-admin { position: relative; flex: 0 0 auto; display: inline-flex; }
+.nav-admin-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+}
+.nav-admin-caret { font-size: 10px; line-height: 1; transition: transform 0.15s; }
+.nav-admin-caret.is-open { transform: rotate(180deg); }
+/* Fixed-positioned so it escapes .site-head's overflow:hidden; coords set inline */
+.nav-admin-menu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+.nav-admin-item {
+  display: flex;
+  align-items: center;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--inkMute);
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.nav-admin-item:hover { background: var(--chip); color: var(--ink); }
+.nav-admin-item.is-on { background: var(--chip); color: var(--ink); font-weight: 700; }
+
 /* ── Small inline-style replacements ── */
 .fw-regular     { font-weight: 400; }
 .block-mt-2     { display: block; margin-top: 2px; }
