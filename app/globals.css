@@ -3755,3 +3755,87 @@ input:focus, select:focus, textarea:focus {
   .grid-cols > *:nth-child(5) { animation-delay: 0.20s; }
   .grid-cols > *:nth-child(6) { animation-delay: 0.24s; }
 }
+
+/* ═══════════════════════════════════════════════
+   MERCH HANDOUT — barcode, handout card, deadline
+   ═══════════════════════════════════════════════ */
+
+/* Shared QR */
+.order-qr-img         { display: block; border-radius: 10px; background: #fff; }
+.order-qr-placeholder { background: var(--surfaceAlt); border: 1px solid var(--border); }
+
+/* Admin order detail — handout card */
+.ao-handout-card {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 16px;
+}
+.ao-handout-qr   { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 0 0 auto; }
+.ao-handout-num  { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; font-weight: 800; color: var(--ink); }
+.ao-handout-body { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; min-width: 0; }
+.ao-light-btn {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ao-light-btn:hover { background: var(--chip); }
+
+/* Employee orders — pickup card + handout banner */
+.order-pickup {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surfaceAlt);
+}
+.order-pickup-text   { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.order-pickup-text b { color: var(--ink); font-size: 14px; }
+.order-pickup-text span { color: var(--inkMute); font-size: 13px; line-height: 1.4; }
+.order-pickup-num    { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 800; color: var(--accent); }
+
+.handout-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border-radius: var(--r-md);
+  border: 1px solid rgba(112, 0, 255, 0.22);
+  background: var(--primary-soft);
+}
+.handout-banner b      { color: var(--ink); font-size: 14px; }
+.handout-banner span   { color: var(--inkMute); font-size: 13px; }
+.handout-banner .kicker { margin-right: 4px; }
+
+@media (max-width: 640px) {
+  .order-pickup  { flex-direction: column; align-items: flex-start; }
+  .ao-handout-card { flex-direction: column; align-items: flex-start; }
+}
+
+/* Deadline editor (admin dashboard) */
+.deadline-editor   { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.deadline-field    { display: flex; flex-direction: column; gap: 7px; color: var(--inkMute); font-size: 13px; font-weight: 800; }
+.deadline-input    { height: 42px; border-radius: 12px; border: 1px solid var(--border); background: #fff; color: var(--ink); padding: 0 12px; font-size: 13px; font-weight: 700; font-family: inherit; }
+.deadline-error    { grid-column: 1 / -1; background: var(--danger-soft); color: #991b1b; padding: 11px 12px; border-radius: 12px; font-size: 13px; font-weight: 800; }
+.deadline-success  { grid-column: 1 / -1; background: #dcfce7; color: #166534; padding: 11px 12px; border-radius: 12px; font-size: 13px; font-weight: 800; }
+.deadline-save     { grid-column: 1 / -1; min-height: 42px; border: 0; border-radius: 999px; background: #1f1238; color: #fff; font-size: 13px; font-weight: 900; padding: 0 16px; cursor: pointer; font-family: inherit; }
+.deadline-save:disabled { background: #9ca3af; cursor: not-allowed; }
+@media (max-width: 700px) { .deadline-editor { grid-template-columns: 1fr; } }

@@ -1,10 +1,26 @@
 'use client'
 
 import AdminShell from '@/components/AdminShell'
+import OrderBarcode from '@/components/OrderBarcode'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import QRCode from 'qrcode'
 import type { DeliveryType, OrderStatus } from '@/lib/supabase/types'
 import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
+
+type PickupStatus = 'pending' | 'packed' | 'handed_owner' | 'handed_other' | 'refused'
+
+const pickupStatusOptions: PickupStatus[] = [
+  'pending', 'packed', 'handed_owner', 'handed_other', 'refused',
+]
+
+const pickupStatusLabels: Record<PickupStatus, string> = {
+  pending:      'Ожидает',
+  packed:       'Упакован',
+  handed_owner: 'Отдан заказчику',
+  handed_other: 'Отдан другу заказчика',
+  refused:      'Отказались забрать',
+}
 
 export type AdminOrderItem = {
   id: string
@@ -31,6 +47,11 @@ export type AdminOrder = {
   admin_comment: string | null
   tracking_number: string | null
   assigned_to: string | null
+  storage_location: string | null
+  pickup_status: string
+  handed_to: string | null
+  is_remote: boolean
+  country: string | null
   created_at: string
   confirmed_at: string | null
   shipped_at: string | null
@@ -422,6 +443,12 @@ function OrderDetail({ order }: { order: AdminOrder }) {
   const [adminComment, setAdminComment] = useState(order.admin_comment ?? '')
   const [trackingNumber, setTrackingNumber] = useState(order.tracking_number ?? '')
 
+  const [storageLocation, setStorageLocation] = useState(order.storage_location ?? '')
+  const [pickupStatus, setPickupStatus] = useState<PickupStatus>(
+    (order.pickup_status as PickupStatus) || 'pending'
+  )
+  const [handedTo, setHandedTo] = useState(order.handed_to ?? '')
+
   const [isSaving, setIsSaving] = useState(false)
   const [error,    setError]    = useState<string | null>(null)
   const [success,  setSuccess]  = useState<string | null>(null)
@@ -439,6 +466,9 @@ function OrderDetail({ order }: { order: AdminOrder }) {
           status,
           admin_comment: adminComment,
           tracking_number: trackingNumber,
+          storage_location: storageLocation,
+          pickup_status: pickupStatus,
+          handed_to: handedTo,
         }),
       })
 
@@ -458,6 +488,45 @@ function OrderDetail({ order }: { order: AdminOrder }) {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  async function handlePrintLabel() {
+    let qrUrl = ''
+    try {
+      qrUrl = await QRCode.toDataURL(order.order_number, { width: 160, margin: 1 })
+    } catch { /* QR is optional on the label */ }
+
+    const itemsHtml = order.order_items
+      .map((it) => `<li>${escapeHtml(it.product_name)} — ${escapeHtml(formatVariant(it))} × ${it.qty}</li>`)
+      .join('')
+
+    const win = window.open('', '_blank', 'width=440,height=640')
+    if (!win) return
+
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Наклейка #${order.order_number}</title>
+      <style>
+        body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:18px;color:#1a0d3a}
+        .label{border:2px solid #1a0d3a;border-radius:14px;padding:18px}
+        h1{font-size:20px;margin:0 0 2px}
+        .num{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:26px;font-weight:800;margin:0 0 12px}
+        .sec{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#6b6585;margin-top:10px}
+        ul{margin:6px 0;padding-left:18px;font-size:13px}
+        .loc{margin-top:8px;font-size:15px}
+        img{display:block;margin:14px auto 0}
+        button{margin-top:16px;width:100%;padding:11px;border:0;border-radius:10px;background:#1f1238;color:#fff;font-weight:700;cursor:pointer}
+        @media print{button{display:none}}
+      </style></head><body>
+      <div class="label">
+        <h1>${escapeHtml(order.full_name || 'Сотрудник')}</h1>
+        <p class="num">#${order.order_number}</p>
+        <div class="sec">Состав</div>
+        <ul>${itemsHtml}</ul>
+        <div class="loc">Где лежит: <b>${escapeHtml(storageLocation || '—')}</b></div>
+        ${qrUrl ? `<img src="${qrUrl}" width="150" height="150" alt="QR заказа"/>` : ''}
+      </div>
+      <button onclick="window.print()">Печать</button>
+      </body></html>`)
+    win.document.close()
   }
 
   return (
@@ -509,6 +578,24 @@ function OrderDetail({ order }: { order: AdminOrder }) {
 
       </div>
 
+      {/* Выдача — штрихкод и наклейка */}
+      <div className="ao-handout-card">
+        <div className="ao-handout-qr">
+          <OrderBarcode value={order.order_number} size={120} />
+          <span className="ao-handout-num">#{order.order_number}</span>
+        </div>
+        <div className="ao-handout-body">
+          <h3 className="ao-card-title">Выдача заказа</h3>
+          <p className="ao-manage-text">
+            Сотрудник показывает этот код при получении. Текущий статус выдачи:{' '}
+            <b>{pickupStatusLabels[pickupStatus]}</b>.
+          </p>
+          <button type="button" className="ao-light-btn" onClick={handlePrintLabel}>
+            🖶 Напечатать наклейку
+          </button>
+        </div>
+      </div>
+
       {/* Управление */}
       <div className="ao-manage-panel">
         <div className="ao-manage-head">
@@ -539,6 +626,41 @@ function OrderDetail({ order }: { order: AdminOrder }) {
               value={trackingNumber}
               onChange={(e) => setTrackingNumber(e.target.value)}
               placeholder="Если есть"
+              className="ao-input"
+            />
+          </label>
+
+          <label className="ao-label">
+            Статус выдачи
+            <select
+              value={pickupStatus}
+              onChange={(e) => setPickupStatus(e.target.value as PickupStatus)}
+              className="ao-input"
+            >
+              {pickupStatusOptions.map((opt) => (
+                <option key={opt} value={opt}>{pickupStatusLabels[opt]}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="ao-label">
+            Где лежит заказ
+            <input
+              type="text"
+              value={storageLocation}
+              onChange={(e) => setStorageLocation(e.target.value)}
+              placeholder="Например: стеллаж B-3, офис Ташкент"
+              className="ao-input"
+            />
+          </label>
+
+          <label className="ao-label">
+            Кому отдали
+            <input
+              type="text"
+              value={handedTo}
+              onChange={(e) => setHandedTo(e.target.value)}
+              placeholder="Если отдали другу заказчика — ФИО"
               className="ao-input"
             />
           </label>
@@ -593,6 +715,15 @@ function getTotalQty(order: AdminOrder) {
 
 function formatVariant(item: AdminOrderItem) {
   return `${item.color || 'Без цвета'} · ${item.size || 'ONE SIZE'}`
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 function formatRelativeDate(value: string) {

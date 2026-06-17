@@ -1,4 +1,5 @@
 import AppNav from '@/components/AppNav'
+import OrderBarcode from '@/components/OrderBarcode'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -108,6 +109,12 @@ export default async function OrdersPage() {
     .eq('employee_id', user.id)
     .order('created_at', { ascending: false })
 
+  const { data: settings } = await supabase
+    .from('merch_settings')
+    .select('handout_deadline, handout_place, handout_note')
+    .eq('id', 1)
+    .maybeSingle()
+
   const isAdmin = Boolean(employee?.is_admin)
 
   /* ── Error state ───────────────────────────────────────────────────────── */
@@ -160,6 +167,20 @@ export default async function OrdersPage() {
           <StatCard label="В работе"       value={activeOrders} />
           <StatCard label="Получено"       value={doneOrders} />
         </div>
+
+        {/* ── Handout deadline / place ── */}
+        {settings && (settings.handout_deadline || settings.handout_place || settings.handout_note) && (
+          <div className="handout-banner">
+            <span className="kicker">Раздача мерча</span>
+            {settings.handout_deadline && (
+              <span><b>Когда:</b> {formatDateTime(settings.handout_deadline)}</span>
+            )}
+            {settings.handout_place && (
+              <span><b>Где:</b> {settings.handout_place}</span>
+            )}
+            {settings.handout_note && <span>{settings.handout_note}</span>}
+          </div>
+        )}
 
         {/* ── Orders list ── */}
         {orders.length === 0 ? (
@@ -326,6 +347,21 @@ function OrderCard({ order }: { order: Order }) {
         </div>
       )}
 
+      {/* ── Pickup barcode ── */}
+      {!isRejected && (
+        <div className="order-pickup">
+          <OrderBarcode value={order.order_number} size={104} />
+          <div className="order-pickup-text">
+            <b>Код для получения: <span className="order-pickup-num">#{order.order_number}</span></b>
+            <span>
+              {isReceived
+                ? 'Заказ уже получен.'
+                : 'Покажите этот код при получении мерча — по нему вас найдут в списке.'}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* ── Footer ── */}
       <div className="order-foot">
         <div className="order-foot-info">
@@ -368,6 +404,17 @@ function formatDateShort(value: string) {
     day:      'numeric',
     month:    'short',
     year:     'numeric',
+  })
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('ru-RU', {
+    timeZone: 'Asia/Tashkent',
+    day:      'numeric',
+    month:    'short',
+    year:     'numeric',
+    hour:     '2-digit',
+    minute:   '2-digit',
   })
 }
 

@@ -279,6 +279,11 @@ export type Database = {
           shipping_package_type: string | null
           shipping_printed_at: string | null
           shipping_printed_by: string | null
+          storage_location: string | null
+          pickup_status:    string
+          handed_to:        string | null
+          is_remote:        boolean
+          country:          string | null
           created_at:       string
           confirmed_at:     string | null
           shipped_at:       string | null
@@ -288,6 +293,8 @@ export type Database = {
         Insert: {
           id?:               string
           employee_id:       string
+          is_remote?:        boolean
+          country?:          string | null
           status?:           OrderStatus
           delivery_type?:    DeliveryType
           delivery_address?: string | null
@@ -306,6 +313,11 @@ export type Database = {
           admin_comment?:    string | null
           tracking_number?:  string | null
           assigned_to?:      string | null
+          storage_location?: string | null
+          pickup_status?:    string
+          handed_to?:        string | null
+          is_remote?:        boolean
+          country?:          string | null
           shipping_places_count?: number | null
           shipping_weight_kg?: number | null
           shipping_package_type?: string | null
@@ -319,6 +331,24 @@ export type Database = {
         Relationships: [
           Rel<'orders_employee_id_fkey', ['employee_id'], 'employees', ['id']>,
         ]
+      }
+      merch_settings: {
+        Row: {
+          id:               number
+          handout_deadline: string | null
+          handout_place:    string | null
+          handout_note:     string | null
+          updated_at:       string
+        }
+        Insert: {
+          id?:               number
+          handout_deadline?: string | null
+          handout_place?:    string | null
+          handout_note?:     string | null
+          updated_at?:       string
+        }
+        Update: Partial<Database['public']['Tables']['merch_settings']['Insert']>
+        Relationships: never[]
       }
       order_items: {
         Row: {
@@ -417,6 +447,15 @@ export type Database = {
           p_status:          OrderStatus
           p_admin_comment:   string | null
           p_tracking_number: string | null
+        }
+        Returns: unknown
+      }
+      admin_set_order_handout: {
+        Args: {
+          p_order_id:         string
+          p_storage_location: string | null
+          p_pickup_status:    string | null
+          p_handed_to:        string | null
         }
         Returns: unknown
       }

@@ -6,6 +6,9 @@ type UpdateOrderPayload = {
   status?: OrderStatus
   admin_comment?: string
   tracking_number?: string
+  storage_location?: string | null
+  pickup_status?: string | null
+  handed_to?: string | null
 }
 
 const allowedStatuses: OrderStatus[] = [
@@ -61,6 +64,24 @@ export async function PATCH(
         { error: error.message },
         { status: 400 }
       )
+    }
+
+    // Handout fields (storage location, pickup status, recipient) are managed by
+    // a separate admin RPC so the core status flow above stays untouched.
+    const hasHandoutUpdate =
+      'storage_location' in body || 'pickup_status' in body || 'handed_to' in body
+
+    if (hasHandoutUpdate) {
+      const { error: handoutError } = await supabase.rpc('admin_set_order_handout', {
+        p_order_id: orderId,
+        p_storage_location: body.storage_location ?? null,
+        p_pickup_status: body.pickup_status ?? null,
+        p_handed_to: body.handed_to ?? null,
+      })
+
+      if (handoutError) {
+        return NextResponse.json({ error: handoutError.message }, { status: 400 })
+      }
     }
 
     return NextResponse.json({
