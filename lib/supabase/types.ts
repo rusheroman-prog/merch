@@ -427,6 +427,8 @@ export type Database = {
           p_delivery_address: string | null
           p_phone:            string | null
           p_comment:          string | null
+          p_is_remote:        boolean
+          p_country:          string | null
         }
         Returns: unknown
       }

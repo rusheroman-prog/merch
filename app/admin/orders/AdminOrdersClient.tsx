@@ -545,6 +545,8 @@ function OrderDetail({ order }: { order: AdminOrder }) {
             <Info label="Отдел"    value={order.department || 'Не указан'} />
             <Info label="Доставка" value={deliveryLabels[order.delivery_type] ?? order.delivery_type} />
             <Info label="Адрес"    value={order.delivery_address || 'Не указан'} />
+            <Info label="Формат"   value={order.is_remote ? 'Удалёнщик' : 'В офисе'} />
+            {order.is_remote && <Info label="Страна" value={order.country || 'Не указана'} />}
           </div>
           {order.comment && (
             <div className="ao-note-box">

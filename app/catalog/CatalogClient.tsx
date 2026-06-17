@@ -97,6 +97,8 @@ export default function CatalogClient({
   const [deliveryAddress, setDeliveryAddress] = useState(checkoutDefaults.deliveryAddress)
   const [phone,           setPhone]           = useState(checkoutDefaults.phone)
   const [comment,         setComment]         = useState('')
+  const [isRemote,        setIsRemote]        = useState(false)
+  const [country,         setCountry]         = useState('')
   const [isSubmitting,    setIsSubmitting]    = useState(false)
   const [checkoutError,   setCheckoutError]   = useState<string | null>(null)
   const [checkoutSuccess, setCheckoutSuccess] = useState<string | null>(null)
@@ -192,6 +194,8 @@ export default function CatalogClient({
           delivery_address: deliveryAddress,
           phone,
           comment,
+          is_remote:        isRemote,
+          country:          isRemote ? country : null,
         }),
       })
 
@@ -206,6 +210,8 @@ export default function CatalogClient({
       setDeliveryAddress(checkoutDefaults.deliveryAddress)
       setPhone(checkoutDefaults.phone)
       setComment('')
+      setIsRemote(false)
+      setCountry('')
       setCheckoutSuccess(
         result.order?.order_number
           ? `Заказ #${result.order.order_number} успешно создан`
@@ -430,6 +436,8 @@ export default function CatalogClient({
                 deliveryAddress={deliveryAddress}
                 phone={phone}
                 comment={comment}
+                isRemote={isRemote}
+                country={country}
                 isSubmitting={isSubmitting}
                 checkoutError={checkoutError}
                 checkoutSuccess={checkoutSuccess}
@@ -439,6 +447,8 @@ export default function CatalogClient({
                 onDeliveryAddressChange={setDeliveryAddress}
                 onPhoneChange={setPhone}
                 onCommentChange={setComment}
+                onRemoteChange={setIsRemote}
+                onCountryChange={setCountry}
                 onCheckout={handleCheckout}
               />
             </div>
@@ -549,6 +559,8 @@ function CartAside({
   deliveryAddress,
   phone,
   comment,
+  isRemote,
+  country,
   isSubmitting,
   checkoutError,
   checkoutSuccess,
@@ -558,6 +570,8 @@ function CartAside({
   onDeliveryAddressChange,
   onPhoneChange,
   onCommentChange,
+  onRemoteChange,
+  onCountryChange,
   onCheckout,
 }: {
   cart: CartItem[]
@@ -566,6 +580,8 @@ function CartAside({
   deliveryAddress: string
   phone: string
   comment: string
+  isRemote: boolean
+  country: string
   isSubmitting: boolean
   checkoutError: string | null
   checkoutSuccess: string | null
@@ -575,6 +591,8 @@ function CartAside({
   onDeliveryAddressChange: (value: string) => void
   onPhoneChange: (value: string) => void
   onCommentChange: (value: string) => void
+  onRemoteChange: (value: boolean) => void
+  onCountryChange: (value: string) => void
   onCheckout: () => void
 }) {
   return (
@@ -666,6 +684,28 @@ function CartAside({
                 placeholder="+998..."
               />
             </label>
+
+            <label className="form-check">
+              <input
+                type="checkbox"
+                checked={isRemote}
+                onChange={e => onRemoteChange(e.target.checked)}
+              />
+              Я удаленщик (получаю мерч не в офисе)
+            </label>
+
+            {isRemote && (
+              <label className="form-label">
+                Страна
+                <input
+                  type="text"
+                  className="form-input"
+                  value={country}
+                  onChange={e => onCountryChange(e.target.value)}
+                  placeholder="Например: Казахстан"
+                />
+              </label>
+            )}
 
             <label className="form-label">
               Комментарий

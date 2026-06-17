@@ -12,6 +12,8 @@ type CheckoutPayload = {
   delivery_address?: string
   phone?: string
   comment?: string
+  is_remote?: boolean
+  country?: string
 }
 
 const MAX_UNIQUE_PRODUCTS = 3
@@ -109,12 +111,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'one_variant_per_product_only' }, { status: 400 })
     }
 
+    const isRemote = body.is_remote === true
+    const country = isRemote ? (body.country?.trim() || null) : null
+
     const { data, error } = await supabase.rpc('create_merch_order', {
       p_items: items,
       p_delivery_type: body.delivery_type ?? 'office',
       p_delivery_address: body.delivery_address ?? null,
       p_phone: body.phone ?? null,
       p_comment: body.comment ?? null,
+      p_is_remote: isRemote,
+      p_country: country,
     })
 
     if (error) {
