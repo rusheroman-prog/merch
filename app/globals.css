@@ -268,7 +268,7 @@ input:focus, select:focus, textarea:focus {
   border-radius: var(--r-pill);
   font-weight: 500;
   letter-spacing: -0.005em;
-  transition: background 0.15s, transform 0.15s, opacity 0.15s;
+  transition: background 0.18s, transform 0.18s, opacity 0.15s, box-shadow 0.18s;
   white-space: nowrap;
 }
 .btn:disabled           { opacity: 0.5; cursor: not-allowed; }
@@ -3662,4 +3662,69 @@ input:focus, select:focus, textarea:focus {
   .ap-edit-title { font-size: 24px; }
   .ap-edit-hero-left { flex-direction: column; gap: 12px; }
   .ap-edit-metrics { grid-template-columns: 1fr; }
+}
+
+/* ═══════════════════════════════════════════════
+   MICRO-POLISH — brand-consistent refinement pass
+   Entrance reveals · premium hover · focus · selection.
+   Every motion is gated behind prefers-reduced-motion.
+   ═══════════════════════════════════════════════ */
+
+/* Branded text selection */
+::selection {
+  background: color-mix(in oklab, var(--accent) 86%, white);
+  color: var(--accentInk);
+}
+
+/* Keyboard-only focus ring (outline follows each element's own radius) */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Premium hover lift on primary actions ── */
+.btn-accent:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px -10px rgba(112, 0, 255, 0.55);
+}
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px -12px rgba(26, 13, 58, 0.5);
+}
+
+/* ── Product card: image gently zooms within its frame on hover ── */
+.card-art img { transition: transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1); }
+.card:hover .card-art img { transform: scale(1.045); }
+
+/* ── Entrance reveals ── */
+@keyframes merch-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+
+  /* Catalog hero — orchestrated stagger */
+  .hero-greeting > * { animation: merch-rise 0.6s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+  .hero-greeting > *:nth-child(1) { animation-delay: 0.02s; }
+  .hero-greeting > *:nth-child(2) { animation-delay: 0.09s; }
+  .hero-greeting > *:nth-child(3) { animation-delay: 0.16s; }
+  .hero-greeting > *:nth-child(4) { animation-delay: 0.23s; }
+  .hero-greeting > *:nth-child(5) { animation-delay: 0.30s; }
+  .hero-quota { animation: merch-rise 0.6s cubic-bezier(0.22, 0.61, 0.36, 1) 0.22s both; }
+
+  /* Other page heroes — single tasteful rise */
+  .orders-head,
+  .profile-hero,
+  .welcome-hero { animation: merch-rise 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+
+  /* Product grid — gentle capped stagger */
+  .grid-cols > * { animation: merch-rise 0.5s ease-out both; }
+  .grid-cols > *:nth-child(1) { animation-delay: 0.04s; }
+  .grid-cols > *:nth-child(2) { animation-delay: 0.08s; }
+  .grid-cols > *:nth-child(3) { animation-delay: 0.12s; }
+  .grid-cols > *:nth-child(4) { animation-delay: 0.16s; }
+  .grid-cols > *:nth-child(5) { animation-delay: 0.20s; }
+  .grid-cols > *:nth-child(6) { animation-delay: 0.24s; }
 }
