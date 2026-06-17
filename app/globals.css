@@ -468,7 +468,11 @@ input:focus, select:focus, textarea:focus {
   gap: 4px;
   justify-self: center;
   min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.head-nav::-webkit-scrollbar { display: none; }
 .nav-link {
   flex: 0 0 auto;
   padding: 8px 14px;
@@ -2999,35 +3003,43 @@ input:focus, select:focus, textarea:focus {
   .welcome-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
-/* ─── 900px: tablet — single-column layouts, horizontal nav ─── */
-@media (max-width: 900px) {
-  :root { --pad-x: 24px; }
-
-  /* Header: brand + side on row 1, nav on row 2 */
+/* ─── 1200px: header reflows to two rows ───
+   The centered nav lives in the collapsing middle (1fr) grid track. With the
+   admin's 7 nav links it can't fit beside the brand and user block, so it
+   spills over and overlaps them. Drop the nav onto its own full-width row
+   well before the rest of the layout collapses. */
+@media (max-width: 1200px) {
   .head-inner {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    padding: 12px var(--pad-x) 0;
   }
-  .head-inner > .brand    { flex: 0 0 auto; }
+  .head-inner > .brand     { flex: 0 0 auto; }
   .head-inner > .head-side { flex: 0 0 auto; margin-left: auto; }
   .head-inner > .head-nav {
     order: 3;
     flex: 1 1 100%;
     width: 100%;
     min-width: 0;
+    justify-content: flex-start;
     overflow-x: auto;
     padding-bottom: 10px;
-    justify-content: flex-start;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
   }
   .head-inner > .head-nav::-webkit-scrollbar { display: none; }
+}
+
+/* ─── 900px: tablet — single-column layouts, horizontal nav ─── */
+@media (max-width: 900px) {
+  :root { --pad-x: 24px; }
+
+  /* Header padding tightens; nav reflow handled at 1200px above */
+  .head-inner { padding: 12px var(--pad-x) 0; }
 
   /* For pages without head-side (orders / profile / welcome),
-     the nav also wraps to its own row */
+     the brand subtitle is hidden to save space */
   .brand-sub { display: none; }
 
   /* Catalog hero: stack */
