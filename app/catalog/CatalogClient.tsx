@@ -1,6 +1,7 @@
 'use client'
 
 import AppNav from '@/components/AppNav'
+import ProductImage from '@/components/ProductImage'
 import { decline, getProductLetter } from '@/lib/utils'
 import { useMemo, useState } from 'react'
 
@@ -485,8 +486,11 @@ function ProductCard({
     <article className="card">
       <div className="card-art">
         {imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={imageUrl} alt={product.name} />
+          <ProductImage
+            src={imageUrl}
+            alt={product.name}
+            sizes="(max-width: 640px) 50vw, (max-width: 900px) 33vw, 300px"
+          />
         ) : (
           <div className="card-art-placeholder">
             <div className="card-art-letter">{getProductLetter(product.name)}</div>

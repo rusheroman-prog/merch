@@ -1,6 +1,7 @@
 'use client'
 
 import AdminShell from '@/components/AdminShell'
+import ProductImage from '@/components/ProductImage'
 import ProductImageUploader from '@/components/ProductImageUploader'
 import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -460,8 +461,12 @@ function ProductCardMode({
     <article className={`ap-card${isEditing ? ' ap-card-active' : ''}`}>
       <div className="ap-card-img-wrap">
         {imageUrl ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img src={imageUrl} alt={product.name} className="ap-card-img" />
+          <ProductImage
+            src={imageUrl}
+            alt={product.name}
+            className="ap-card-img"
+            sizes="(max-width: 760px) 100vw, 250px"
+          />
         ) : (
           <div className="ap-card-placeholder">{getProductLetter(product.name)}</div>
         )}
@@ -526,8 +531,12 @@ function ProductRow({
       >
         <div className="ap-product-art">
           {imageUrl ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={imageUrl} alt={product.name} className="ap-product-image" />
+            <ProductImage
+              src={imageUrl}
+              alt={product.name}
+              className="ap-product-image"
+              sizes="64px"
+            />
           ) : (
             <div className="ap-product-placeholder">{getProductLetter(product.name)}</div>
           )}

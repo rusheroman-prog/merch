@@ -3437,7 +3437,7 @@ input:focus, select:focus, textarea:focus {
 .ap-product-row       { display: grid; grid-template-columns: 66px minmax(240px, 1fr) 110px 110px 110px 100px auto; align-items: center; min-width: 1040px; min-height: 92px; padding: 14px 18px; gap: 18px; border: 0; width: 100%; background: #fff; color: var(--ink); text-align: left; cursor: pointer; }
 .ap-product-row:hover { background: #faf8ff; }
 .ap-product-row.ap-product-row-active { background: #fbf8ff; }
-.ap-product-art       { width: 64px; height: 64px; border-radius: 12px; overflow: hidden; background: #f1ebff; flex: 0 0 auto; }
+.ap-product-art       { position: relative; width: 64px; height: 64px; border-radius: 12px; overflow: hidden; background: #f1ebff; flex: 0 0 auto; }
 .ap-product-image     { width: 100%; height: 100%; object-fit: cover; }
 .ap-product-placeholder { width: 100%; height: 100%; background: linear-gradient(135deg, #f1ebff 0%, #fff 100%); color: var(--accent); display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-size: 24px; font-weight: 800; }
 .ap-product-name-cell { min-width: 0; display: flex; flex-direction: column; gap: 4px; }

@@ -1,3 +1,23 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {};
-export default nextConfig;
+
+// Derive the Supabase Storage host from the public env var so next/image is
+// allowed to optimise product photos served from Supabase. Env files are
+// loaded before this config is evaluated, both locally and on Vercel.
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseHost = supabaseUrl ? new URL(supabaseUrl).hostname : undefined
+
+const nextConfig = {
+  images: {
+    remotePatterns: supabaseHost
+      ? [
+          {
+            protocol: 'https',
+            hostname: supabaseHost,
+            pathname: '/storage/v1/object/public/**',
+          },
+        ]
+      : [],
+  },
+}
+
+export default nextConfig

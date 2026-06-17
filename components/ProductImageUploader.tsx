@@ -69,7 +69,7 @@ export default function ProductImageUploader({
       {value ? (
         <div className="img-uploader-preview">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={value} alt="Фото товара" className="img-uploader-img" />
+          <img src={value} alt="Фото товара" className="img-uploader-img" loading="lazy" decoding="async" />
           <div className="img-uploader-url-box">
             <div className="img-uploader-url-label">URL изображения</div>
             <input
