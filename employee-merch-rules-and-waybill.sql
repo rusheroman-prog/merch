@@ -196,6 +196,10 @@ as $$
     end as months_worked;
 $$;
 
+-- Prod may already have create_merch_order with default parameter values;
+-- create-or-replace cannot remove parameter defaults, so drop the old signature first.
+drop function if exists public.create_merch_order(jsonb, public.delivery_type, text, text, text);
+
 create or replace function public.create_merch_order(
   p_items jsonb,
   p_delivery_type public.delivery_type,
