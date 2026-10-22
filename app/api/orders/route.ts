@@ -1,5 +1,6 @@
-import { NextResponse, type NextRequest } from 'next/server'
+import { after, NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isEmailConfigured, sendOrderEmail } from '@/lib/email'
 import { ACTIVE_DELIVERY_TYPES, type ActiveDeliveryType } from '@/lib/supabase/types'
 
 type CheckoutItem = {
@@ -14,7 +15,12 @@ type CheckoutPayload = {
   phone?: string
   comment?: string
   country?: string
+  /** Remote worker picking merch up in Tashkent: trip dates, YYYY-MM-DD. */
+  trip_from?: string | null
+  trip_until?: string | null
 }
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export async function POST(request: NextRequest) {
   try {
@@ -87,6 +93,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'delivery_address_required' }, { status: 400 })
     }
 
+    const tripFrom = body.trip_from?.trim() || null
+    const tripUntil = body.trip_until?.trim() || null
+    const hasTrip = Boolean(tripFrom || tripUntil)
+
+    if (hasTrip && (!tripFrom || !tripUntil || !DATE_RE.test(tripFrom) || !DATE_RE.test(tripUntil))) {
+      return NextResponse.json({ error: 'trip_dates_required' }, { status: 400 })
+    }
+
+    if (hasTrip && isPost) {
+      return NextResponse.json({ error: 'trip_only_for_office' }, { status: 400 })
+    }
+
     const { data: accessRows, error: accessError } = await supabase.rpc(
       'get_employee_merch_access',
       { p_email: user.email ?? '' }
@@ -133,8 +151,10 @@ export async function POST(request: NextRequest) {
       p_delivery_address: isPost ? deliveryAddress : null,
       p_phone: phone,
       p_comment: body.comment?.trim() || null,
-      p_is_remote: isPost,
+      p_is_remote: isPost || hasTrip,
       p_country: isPost ? body.country?.trim() || null : null,
+      p_trip_from: tripFrom,
+      p_trip_until: tripUntil,
     })
 
     if (error) {
@@ -142,6 +162,33 @@ export async function POST(request: NextRequest) {
         { error: error.message },
         { status: 400 }
       )
+    }
+
+    const created = data as { id?: string } | null
+
+    if (created?.id && isEmailConfigured()) {
+      const orderId = created.id
+      // Confirmation with the pickup QR goes out after the response is sent.
+      after(async () => {
+        const { data: order } = await supabase
+          .from('orders')
+          .select('order_number, pickup_code, email, full_name, delivery_type, trip_until, order_items ( product_name, size, color )')
+          .eq('id', orderId)
+          .maybeSingle()
+
+        const { data: settings } = await supabase
+          .from('merch_settings')
+          .select('handout_place, handout_deadline')
+          .eq('id', 1)
+          .maybeSingle()
+
+        if (order) {
+          await sendOrderEmail('created', { ...order, items: order.order_items ?? [] }, {
+            place: settings?.handout_place,
+            deadline: settings?.handout_deadline,
+          })
+        }
+      })
     }
 
     return NextResponse.json({

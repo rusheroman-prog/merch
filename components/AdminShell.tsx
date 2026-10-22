@@ -16,9 +16,11 @@ type AdminShellProps = {
 const navItems = [
   { key: 'dashboard', href: '/admin',                   label: 'Дашборд', description: 'Сводка',           icon: '⌂' },
   { key: 'orders',    href: '/admin/orders',             label: 'Заказы',  description: 'Заявки и статусы', icon: '◇' },
+  { key: 'handout',   href: '/admin/handout',            label: 'Выдача',  description: 'Сканер QR',        icon: '⌗' },
   { key: 'stock',     href: '/admin/products',           label: 'Склад',   description: 'Остатки товаров',  icon: '▦' },
   { key: 'products',  href: '/admin/products?mode=cards',label: 'Товары',  description: 'Карточки и фото',  icon: '⌑' },
   { key: 'employees', href: '/admin/employees',          label: 'Сотрудники',  description: 'HR-реестр и доступ',      icon: 'HR' },
+  { key: 'report',    href: '/admin/report',             label: 'Отчёт',   description: 'Выдано и остатки', icon: '▤' },
 ]
 
 export default function AdminShell({
@@ -88,7 +90,9 @@ export default function AdminShell({
               (item.key === 'orders'    && pathname === '/admin/orders') ||
               (item.key === 'stock'     && pathname === '/admin/products' && mode !== 'cards') ||
               (item.key === 'products'  && pathname === '/admin/products' && mode === 'cards') ||
-              (item.key === 'employees' && pathname === '/admin/employees')
+              (item.key === 'employees' && pathname === '/admin/employees') ||
+              (item.key === 'handout'   && pathname === '/admin/handout') ||
+              (item.key === 'report'    && pathname === '/admin/report')
 
             const badge = getBadge(item.key)
 

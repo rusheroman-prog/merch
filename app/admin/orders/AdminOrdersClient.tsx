@@ -7,20 +7,15 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import QRCode from 'qrcode'
 import { DELIVERY_TYPE_LABELS, type DeliveryType, type OrderStatus } from '@/lib/supabase/types'
 import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
-
-type PickupStatus = 'pending' | 'packed' | 'handed_owner' | 'handed_other' | 'refused'
-
-const pickupStatusOptions: PickupStatus[] = [
-  'pending', 'packed', 'handed_owner', 'handed_other', 'refused',
-]
-
-const pickupStatusLabels: Record<PickupStatus, string> = {
-  pending:      'Ожидает',
-  packed:       'Упакован',
-  handed_owner: 'Отдан заказчику',
-  handed_other: 'Отдан другу заказчика',
-  refused:      'Отказались забрать',
-}
+import {
+  formatPickupCode,
+  getAllowedStatuses,
+  getBranch,
+  getStatusFilterLabel,
+  getStatusLabel,
+  getStatusTone,
+  isClosed,
+} from '@/lib/orderStatus'
 
 export type AdminOrderItem = {
   id: string
@@ -48,10 +43,13 @@ export type AdminOrder = {
   tracking_number: string | null
   assigned_to: string | null
   storage_location: string | null
-  pickup_status: string
   handed_to: string | null
   is_remote: boolean
   country: string | null
+  pickup_code: string
+  trip_from: string | null
+  trip_until: string | null
+  ready_at: string | null
   created_at: string
   confirmed_at: string | null
   shipped_at: string | null
@@ -68,24 +66,12 @@ type AdminOrdersClientProps = {
 
 type SortMode = 'date_desc' | 'date_asc' | 'number_desc' | 'number_asc'
 
-const statusLabels: Record<OrderStatus, string> = {
-  new: 'Новый',
-  review: 'На проверке',
-  confirmed: 'Подтверждён',
-  assembling: 'Собирается',
-  shipped: 'Отправлен',
-  received: 'Получен',
-  cancelled: 'Отменён',
-  rejected: 'Отклонён',
-}
-
 const deliveryLabels: Record<DeliveryType, string> = DELIVERY_TYPE_LABELS
 
 const statusOptions: OrderStatus[] = [
   'new',
-  'review',
-  'confirmed',
   'assembling',
+  'ready',
   'shipped',
   'received',
   'cancelled',
@@ -183,7 +169,8 @@ export default function AdminOrdersClient({
 
       return {
         order_number:     order.order_number,
-        status:           statusLabels[order.status],
+        pickup_code:      formatPickupCode(order.pickup_code),
+        status:           getStatusLabel(order.status, order.delivery_type, 'admin'),
         created_at:       formatDateTime(order.created_at),
         full_name:        order.full_name || '',
         email:            order.email || '',
@@ -197,6 +184,9 @@ export default function AdminOrdersClient({
         comment:          order.comment || '',
         admin_comment:    order.admin_comment || '',
         tracking_number:  order.tracking_number || '',
+        trip_until:       order.trip_until || '',
+        handed_to:        order.handed_to || '',
+        received_at:      order.received_at ? formatDateTime(order.received_at) : '',
       }
     })
 
@@ -359,6 +349,11 @@ export default function AdminOrdersClient({
 
                       <div className="ao-delivery-cell">
                         {deliveryLabels[order.delivery_type]}
+                        {order.trip_until && !isClosed(order.status) && (
+                          <span className={`ao-deadline${isOverdue(order.trip_until) ? ' ao-deadline-overdue' : ''}`}>
+                            до {formatShortDate(order.trip_until)}
+                          </span>
+                        )}
                       </div>
 
                       <div className="ao-date-cell">
@@ -367,7 +362,7 @@ export default function AdminOrdersClient({
 
                       <div>
                         <span className={getStatusBadgeClass(order.status)}>
-                          {statusLabels[order.status]}
+                          {getStatusLabel(order.status, order.delivery_type, 'admin')}
                         </span>
                       </div>
 
@@ -412,14 +407,14 @@ function StatusTabs({
         <span>{counters.all ?? 0}</span>
       </button>
 
-      {statusOptions.map((status) => (
+      {[...statusOptions, ...(['review', 'confirmed'] as OrderStatus[]).filter((s) => counters[s])].map((status) => (
         <button
           key={status}
           type="button"
           onClick={() => onChange(status)}
           className={`ao-status-tab${activeStatus === status ? ' ao-status-tab-active' : ''}`}
         >
-          {statusLabels[status]}
+          {getStatusFilterLabel(status)}
           <span>{counters[status] ?? 0}</span>
         </button>
       ))}
@@ -439,10 +434,11 @@ function OrderDetail({ order }: { order: AdminOrder }) {
   const [trackingNumber, setTrackingNumber] = useState(order.tracking_number ?? '')
 
   const [storageLocation, setStorageLocation] = useState(order.storage_location ?? '')
-  const [pickupStatus, setPickupStatus] = useState<PickupStatus>(
-    (order.pickup_status as PickupStatus) || 'pending'
-  )
   const [handedTo, setHandedTo] = useState(order.handed_to ?? '')
+
+  const isPost = getBranch(order.delivery_type) === 'post'
+  const closed = isClosed(order.status)
+  const statusChoices = getAllowedStatuses(order.status, order.delivery_type)
 
   const [isSaving, setIsSaving] = useState(false)
   const [error,    setError]    = useState<string | null>(null)
@@ -462,7 +458,6 @@ function OrderDetail({ order }: { order: AdminOrder }) {
           admin_comment: adminComment,
           tracking_number: trackingNumber,
           storage_location: storageLocation,
-          pickup_status: pickupStatus,
           handed_to: handedTo,
         }),
       })
@@ -488,7 +483,7 @@ function OrderDetail({ order }: { order: AdminOrder }) {
   async function handlePrintLabel() {
     let qrUrl = ''
     try {
-      qrUrl = await QRCode.toDataURL(order.order_number, { width: 160, margin: 1 })
+      qrUrl = await QRCode.toDataURL(order.pickup_code, { width: 160, margin: 1 })
     } catch { /* QR is optional on the label */ }
 
     const itemsHtml = order.order_items
@@ -539,9 +534,17 @@ function OrderDetail({ order }: { order: AdminOrder }) {
             <Info label="Телефон"  value={order.phone || 'Не указан'} />
             <Info label="Отдел"    value={order.department || 'Не указан'} />
             <Info label="Доставка" value={deliveryLabels[order.delivery_type] ?? order.delivery_type} />
-            <Info label="Адрес"    value={order.delivery_address || 'Не указан'} />
+            {(isPost || order.delivery_address) && (
+              <Info label="Адрес"    value={order.delivery_address || 'Не указан'} />
+            )}
             <Info label="Формат"   value={order.is_remote ? 'Удалёнщик' : 'В офисе'} />
-            {order.is_remote && <Info label="Страна" value={order.country || 'Не указана'} />}
+            {isPost && <Info label="Страна" value={order.country || 'Не указана'} />}
+            {order.trip_from && order.trip_until && (
+              <Info
+                label="Командировка"
+                value={`${formatShortDate(order.trip_from)} – ${formatShortDate(order.trip_until)} · выдать до ${formatShortDate(order.trip_until)}`}
+              />
+            )}
           </div>
           {order.comment && (
             <div className="ao-note-box">
@@ -575,30 +578,40 @@ function OrderDetail({ order }: { order: AdminOrder }) {
 
       </div>
 
-      {/* Выдача — штрихкод и наклейка */}
-      <div className="ao-handout-card">
-        <div className="ao-handout-qr">
-          <OrderBarcode value={order.order_number} size={120} />
-          <span className="ao-handout-num">#{order.order_number}</span>
+      {/* Выдача — QR и наклейка (только для выдачи в офисе) */}
+      {!isPost && (
+        <div className="ao-handout-card">
+          <div className="ao-handout-qr">
+            <OrderBarcode value={order.pickup_code} size={120} />
+            <span className="ao-handout-num">{formatPickupCode(order.pickup_code)}</span>
+          </div>
+          <div className="ao-handout-body">
+            <h3 className="ao-card-title">Выдача заказа</h3>
+            <p className="ao-manage-text">
+              {order.status === 'received'
+                ? `Выдан${order.received_at ? ` ${formatDateTime(order.received_at)}` : ''}${order.handed_to ? ` · получил(а): ${order.handed_to}` : ''}.`
+                : 'Сотрудник показывает QR при получении. Сканируйте его на странице «Выдача» — статус «Отдали заказ» поставится сам.'}
+            </p>
+            <div className="ao-handout-actions">
+              <button type="button" className="ao-light-btn" onClick={handlePrintLabel}>
+                🖶 Напечатать наклейку
+              </button>
+              {!closed && (
+                <a href="/admin/handout" className="ao-light-btn">Открыть выдачу →</a>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="ao-handout-body">
-          <h3 className="ao-card-title">Выдача заказа</h3>
-          <p className="ao-manage-text">
-            Сотрудник показывает этот код при получении. Текущий статус выдачи:{' '}
-            <b>{pickupStatusLabels[pickupStatus]}</b>.
-          </p>
-          <button type="button" className="ao-light-btn" onClick={handlePrintLabel}>
-            🖶 Напечатать наклейку
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Управление */}
       <div className="ao-manage-panel">
         <div className="ao-manage-head">
           <h3 className="ao-card-title">Управление заказом</h3>
           <p className="ao-manage-text">
-            Изменение статуса может повлиять на резерв и движение остатков.
+            {closed
+              ? 'Заказ закрыт — статус больше не меняется.'
+              : 'Отмена снимает резерв; «Отправлено» и «Отдали заказ» списывают товар со склада.'}
           </p>
         </div>
 
@@ -609,58 +622,50 @@ function OrderDetail({ order }: { order: AdminOrder }) {
               value={status}
               onChange={(e) => setStatus(e.target.value as OrderStatus)}
               className="ao-input"
+              disabled={closed}
             >
-              {statusOptions.map((opt) => (
-                <option key={opt} value={opt}>{statusLabels[opt]}</option>
+              {statusChoices.map((opt) => (
+                <option key={opt} value={opt}>{getStatusLabel(opt, order.delivery_type, 'admin')}</option>
               ))}
             </select>
           </label>
 
-          <label className="ao-label">
-            Трек-номер
-            <input
-              type="text"
-              value={trackingNumber}
-              onChange={(e) => setTrackingNumber(e.target.value)}
-              placeholder="Если есть"
-              className="ao-input"
-            />
-          </label>
+          {isPost ? (
+            <label className="ao-label">
+              Трек-номер
+              <input
+                type="text"
+                value={trackingNumber}
+                onChange={(e) => setTrackingNumber(e.target.value)}
+                placeholder="Номер отправления"
+                className="ao-input"
+              />
+            </label>
+          ) : (
+            <label className="ao-label">
+              Где лежит заказ
+              <input
+                type="text"
+                value={storageLocation}
+                onChange={(e) => setStorageLocation(e.target.value)}
+                placeholder="Например: стеллаж B-3, офис Ташкент"
+                className="ao-input"
+              />
+            </label>
+          )}
 
-          <label className="ao-label">
-            Статус выдачи
-            <select
-              value={pickupStatus}
-              onChange={(e) => setPickupStatus(e.target.value as PickupStatus)}
-              className="ao-input"
-            >
-              {pickupStatusOptions.map((opt) => (
-                <option key={opt} value={opt}>{pickupStatusLabels[opt]}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="ao-label">
-            Где лежит заказ
-            <input
-              type="text"
-              value={storageLocation}
-              onChange={(e) => setStorageLocation(e.target.value)}
-              placeholder="Например: стеллаж B-3, офис Ташкент"
-              className="ao-input"
-            />
-          </label>
-
-          <label className="ao-label">
-            Кому отдали
-            <input
-              type="text"
-              value={handedTo}
-              onChange={(e) => setHandedTo(e.target.value)}
-              placeholder="Если отдали другу заказчика — ФИО"
-              className="ao-input"
-            />
-          </label>
+          {!isPost && (
+            <label className="ao-label">
+              Кому отдали
+              <input
+                type="text"
+                value={handedTo}
+                onChange={(e) => setHandedTo(e.target.value)}
+                placeholder="Если отдали коллеге заказчика — ФИО"
+                className="ao-input"
+              />
+            </label>
+          )}
 
           <label className="ao-label-wide">
             Комментарий администратора
@@ -762,8 +767,23 @@ function getItemMarkClass(index: number): string {
 }
 
 function getStatusBadgeClass(status: OrderStatus): string {
-  if (status === 'shipped'   || status === 'received')   return 'ao-badge ao-badge-green'
-  if (status === 'confirmed' || status === 'assembling') return 'ao-badge ao-badge-blue'
-  if (status === 'cancelled' || status === 'rejected')   return 'ao-badge ao-badge-red'
+  const tone = getStatusTone(status)
+  if (tone === 'green')  return 'ao-badge ao-badge-green'
+  if (tone === 'blue')   return 'ao-badge ao-badge-blue'
+  if (tone === 'violet') return 'ao-badge ao-badge-violet'
+  if (tone === 'red')    return 'ao-badge ao-badge-red'
   return 'ao-badge'
+}
+
+function formatShortDate(value: string) {
+  return new Date(`${value.slice(0, 10)}T00:00:00`).toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
+function isOverdue(date: string) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return new Date(`${date.slice(0, 10)}T00:00:00`) < today
 }

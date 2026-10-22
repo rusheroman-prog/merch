@@ -83,8 +83,11 @@ const ALL = 'all'
 const NO_SIZE = 'one-size'
 const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL']
 
+/** 'trip' = remote worker picking merch up in Tashkent: office delivery + trip dates. */
+type DeliveryChoice = ActiveDeliveryType | 'trip'
+
 type DeliveryOption = {
-  value: ActiveDeliveryType | 'pvz' | 'courier'
+  value: DeliveryChoice | 'pvz' | 'courier'
   title: string
   hint: string
   disabled?: boolean
@@ -109,7 +112,9 @@ export default function CatalogClient({
   const [cart, setCart] = useState<CartItem[]>([])
 
   /* Checkout form */
-  const [deliveryType,    setDeliveryType]    = useState<ActiveDeliveryType>(checkoutDefaults.deliveryType)
+  const [deliveryType,    setDeliveryType]    = useState<DeliveryChoice>(checkoutDefaults.deliveryType)
+  const [tripFrom,        setTripFrom]        = useState('')
+  const [tripUntil,       setTripUntil]       = useState('')
   const [deliveryAddress, setDeliveryAddress] = useState(checkoutDefaults.deliveryAddress)
   const [country,         setCountry]         = useState(checkoutDefaults.country || 'Узбекистан')
   const [phone,           setPhone]           = useState(checkoutDefaults.phone)
@@ -187,6 +192,11 @@ export default function CatalogClient({
       title: 'Отправить почтой',
       hint:  'Для сотрудников на удалёнке',
     },
+    {
+      value: 'trip',
+      title: 'Удалённо, но заберу в Ташкенте',
+      hint:  'Командировка: отложим мерч до вашего отъезда',
+    },
     { value: 'pvz',     title: 'ПВЗ / филиал', hint: 'Скоро', disabled: true },
     { value: 'courier', title: 'Курьер',       hint: 'Скоро', disabled: true },
   ]
@@ -223,6 +233,14 @@ export default function CatalogClient({
       setCheckoutError('Укажите адрес, куда отправить посылку.')
       return
     }
+    if (deliveryType === 'trip' && (!tripFrom || !tripUntil)) {
+      setCheckoutError('Укажите даты командировки — до последнего дня мерч будет отложен.')
+      return
+    }
+    if (deliveryType === 'trip' && tripUntil < tripFrom) {
+      setCheckoutError('Дата отъезда не может быть раньше даты приезда.')
+      return
+    }
 
     setIsSubmitting(true)
     setCheckoutError(null)
@@ -234,9 +252,11 @@ export default function CatalogClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items:            cart.map(item => ({ variant_id: item.variant.id, qty: 1 })),
-          delivery_type:    deliveryType,
+          delivery_type:    deliveryType === 'post' ? 'post' : 'office',
           delivery_address: deliveryType === 'post' ? deliveryAddress : null,
           country:          deliveryType === 'post' ? country : null,
+          trip_from:        deliveryType === 'trip' ? tripFrom : null,
+          trip_until:       deliveryType === 'trip' ? tripUntil : null,
           phone,
           comment,
         }),
@@ -475,6 +495,8 @@ export default function CatalogClient({
                 remaining={remaining}
                 deliveryOptions={deliveryOptions}
                 deliveryType={deliveryType}
+                tripFrom={tripFrom}
+                tripUntil={tripUntil}
                 deliveryAddress={deliveryAddress}
                 country={country}
                 phone={phone}
@@ -485,6 +507,8 @@ export default function CatalogClient({
                 merchAccess={merchAccess}
                 onRemove={removeFromCart}
                 onDeliveryTypeChange={setDeliveryType}
+                onTripFromChange={setTripFrom}
+                onTripUntilChange={setTripUntil}
                 onDeliveryAddressChange={setDeliveryAddress}
                 onCountryChange={setCountry}
                 onPhoneChange={setPhone}
@@ -605,6 +629,8 @@ function CartAside({
   remaining,
   deliveryOptions,
   deliveryType,
+  tripFrom,
+  tripUntil,
   deliveryAddress,
   country,
   phone,
@@ -615,6 +641,8 @@ function CartAside({
   merchAccess,
   onRemove,
   onDeliveryTypeChange,
+  onTripFromChange,
+  onTripUntilChange,
   onDeliveryAddressChange,
   onCountryChange,
   onPhoneChange,
@@ -624,7 +652,9 @@ function CartAside({
   cart: CartItem[]
   remaining: number
   deliveryOptions: DeliveryOption[]
-  deliveryType: ActiveDeliveryType
+  deliveryType: DeliveryChoice
+  tripFrom: string
+  tripUntil: string
   deliveryAddress: string
   country: string
   phone: string
@@ -634,7 +664,9 @@ function CartAside({
   checkoutSuccess: string | null
   merchAccess: MerchAccess
   onRemove: (variantId: string) => void
-  onDeliveryTypeChange: (value: ActiveDeliveryType) => void
+  onDeliveryTypeChange: (value: DeliveryChoice) => void
+  onTripFromChange: (value: string) => void
+  onTripUntilChange: (value: string) => void
   onDeliveryAddressChange: (value: string) => void
   onCountryChange: (value: string) => void
   onPhoneChange: (value: string) => void
@@ -706,7 +738,7 @@ function CartAside({
                       value={option.value}
                       checked={isActive}
                       disabled={option.disabled}
-                      onChange={() => onDeliveryTypeChange(option.value as ActiveDeliveryType)}
+                      onChange={() => onDeliveryTypeChange(option.value as DeliveryChoice)}
                     />
                     <span className="delivery-option-body">
                       <b>{option.title}</b>
@@ -716,6 +748,31 @@ function CartAside({
                 )
               })}
             </fieldset>
+
+            {deliveryType === 'trip' && (
+              <div className="trip-dates">
+                <label className="form-label">
+                  Буду в Ташкенте с
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={tripFrom}
+                    min={todayIso()}
+                    onChange={e => onTripFromChange(e.target.value)}
+                  />
+                </label>
+                <label className="form-label">
+                  по
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={tripUntil}
+                    min={tripFrom || todayIso()}
+                    onChange={e => onTripUntilChange(e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
 
             {deliveryType === 'post' && (
               <>
@@ -837,6 +894,12 @@ function LogoutButton() {
 /*  Helper functions                                                            */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
+function todayIso() {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
 function matchesSize(variant: CatalogVariant, size: string) {
   if (size === ALL) return true
   const variantSize = variant.size?.trim()
@@ -907,6 +970,16 @@ function getCheckoutErrorMessage(error: string, maxItems: number): string {
     return 'Укажите адрес, куда отправить посылку.'
   if (error.includes('phone_required'))
     return 'Укажите телефон для связи.'
+  if (error.includes('trip_dates_required'))
+    return 'Укажите обе даты командировки.'
+  if (error.includes('trip_dates_invalid'))
+    return 'Дата отъезда не может быть раньше даты приезда.'
+  if (error.includes('trip_dates_in_past'))
+    return 'Даты командировки уже прошли — укажите актуальные.'
+  if (error.includes('trip_too_long'))
+    return 'Командировка длиннее 60 дней — выберите «Отправить почтой».'
+  if (error.includes('trip_only_for_office'))
+    return 'Командировка — только для получения в офисе.'
   if (error.includes('employee_tenure_too_short'))
     return 'Мерч доступен сотрудникам, отработавшим больше 3 месяцев.'
   if (error.includes('employee_not_in_directory') || error.includes('employee_inactive'))
