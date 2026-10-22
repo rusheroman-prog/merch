@@ -3,11 +3,9 @@ import MerchSettingsEditor from '@/components/MerchSettingsEditor'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
 import { getLowStockVariants } from '@/lib/stock'
+import { getStatusFilterLabel, getStatusLabel, getStatusTone, isClosed } from '@/lib/orderStatus'
+import type { OrderStatus } from '@/lib/supabase/types'
 import { redirect } from 'next/navigation'
-
-type OrderStatus =
-  | 'new' | 'review' | 'confirmed' | 'assembling'
-  | 'shipped' | 'received' | 'cancelled' | 'rejected'
 
 type AdminDashOrderItem = {
   id: string
@@ -23,9 +21,11 @@ type AdminDashOrder = {
   order_number: string
   employee_id: string
   status: OrderStatus
+  delivery_type: string
   full_name: string | null
   email: string | null
   department: string | null
+  trip_until: string | null
   created_at: string
   order_items: AdminDashOrderItem[]
 }
@@ -49,19 +49,8 @@ type AdminDashProduct = {
   product_variants: AdminDashVariant[]
 }
 
-const statusLabels: Record<OrderStatus, string> = {
-  new:        'Новый',
-  review:     'На проверке',
-  confirmed:  'Подтверждён',
-  assembling: 'Собирается',
-  shipped:    'Отправлен',
-  received:   'Получен',
-  cancelled:  'Отменён',
-  rejected:   'Отклонён',
-}
-
 const statusOrder: OrderStatus[] = [
-  'new', 'review', 'confirmed', 'assembling', 'shipped', 'received', 'cancelled', 'rejected',
+  'new', 'assembling', 'ready', 'shipped', 'received', 'cancelled', 'rejected',
 ]
 
 export default async function AdminDashboardPage() {
@@ -83,7 +72,7 @@ export default async function AdminDashboardPage() {
     supabase
       .from('orders')
       .select(`
-        id, order_number, employee_id, status, full_name, email, department, created_at,
+        id, order_number, employee_id, status, delivery_type, full_name, email, department, trip_until, created_at,
         order_items ( id, product_name, size, color, sku, qty )
       `)
       .order('created_at', { ascending: false }),
@@ -106,15 +95,16 @@ export default async function AdminDashboardPage() {
   const orders   = ((ordersData   ?? []) as unknown) as AdminDashOrder[]
   const products = ((productsData ?? []) as unknown) as AdminDashProduct[]
 
-  const activeOrders = orders.filter(
-    o => !['received', 'cancelled', 'rejected'].includes(o.status)
-  )
+  const activeOrders = orders.filter(o => !isClosed(o.status))
+
+  // Remote workers on a business trip: merch must be handed out by trip_until.
+  const deadlineTasks = activeOrders
+    .filter(o => o.trip_until)
+    .sort((a, b) => String(a.trip_until).localeCompare(String(b.trip_until)))
 
   const weekAgo = new Date()
   weekAgo.setDate(weekAgo.getDate() - 7)
   const newThisWeek = orders.filter(o => new Date(o.created_at) >= weekAgo)
-
-  const uniqueEmployees = new Set(orders.map(o => o.employee_id)).size
 
   // "Beacons": each product has its own threshold, archived/hidden ones are skipped.
   const lowStockVariants = getLowStockVariants(products)
@@ -128,9 +118,12 @@ export default async function AdminDashboardPage() {
     }))
     .sort((a, b) => a.availableQty - b.availableQty)
 
-  const statusCounters = statusOrder.map(status => ({
+  const legacyStatuses = (['review', 'confirmed'] as OrderStatus[])
+    .filter(status => orders.some(o => o.status === status))
+
+  const statusCounters = [...statusOrder, ...legacyStatuses].map(status => ({
     status,
-    label: statusLabels[status],
+    label: getStatusFilterLabel(status),
     count: orders.filter(o => o.status === status).length,
   }))
 
@@ -149,8 +142,9 @@ export default async function AdminDashboardPage() {
       <section className="dash-kpi-grid">
         <KpiCard tone="primary"  label="Активных заказов"        value={String(activeOrders.length)}     hint={`из ${orders.length} всего`} />
         <KpiCard tone="default"  label="Новые за неделю"         value={String(newThisWeek.length)}      hint="заявки за последние 7 дней" />
+        <KpiCard tone={deadlineTasks.length > 0 ? 'danger' : 'default'} label="Задачи с дедлайном" value={String(deadlineTasks.length)} hint="выдать до конца командировки" />
         <KpiCard tone="danger"   label="Сработали маячки"        value={String(lowStockVariants.length)} hint="вариантов на пороге остатка" />
-        <KpiCard tone="default"  label="Сотрудников с заказами"  value={String(uniqueEmployees)}         hint="уникальных получателей" />
+
       </section>
 
       {/* ── Настройки раздачи ── */}
@@ -169,6 +163,35 @@ export default async function AdminDashboardPage() {
           supportUrl={settings?.support_url ?? null}
         />
       </section>
+
+      {/* ── Задачи с дедлайном (командировки) ── */}
+      {deadlineTasks.length > 0 && (
+        <section className="dash-card">
+          <div className="dash-card-head">
+            <h2 className="dash-card-title">Выдать до дедлайна</h2>
+            <a href="/admin/handout" className="dash-card-link">Выдача →</a>
+          </div>
+          <div className="dash-recent-list">
+            {deadlineTasks.slice(0, 8).map(order => (
+              <a
+                key={order.id}
+                href={`/admin/orders?q=${encodeURIComponent(order.order_number)}`}
+                className="dash-recent-row dash-task-row"
+              >
+                <div>
+                  <b>#{order.order_number} · {order.full_name || order.email || 'Сотрудник'}</b>
+                  <span>
+                    Командировка в Ташкент · {getStatusLabel(order.status, order.delivery_type, 'admin')}
+                  </span>
+                </div>
+                <span className={`dash-deadline${isOverdue(order.trip_until) ? ' dash-deadline-overdue' : ''}`}>
+                  до {formatDay(order.trip_until)}
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Dashboard 2×2 ── */}
       <section className="dash-grid">
@@ -208,7 +231,7 @@ export default async function AdminDashboardPage() {
                 <div className="dash-recent-right">
                   <small>{formatRelativeDate(order.created_at)}</small>
                   <span className={getStatusBadgeClass(order.status)}>
-                    {statusLabels[order.status]}
+                    {getStatusLabel(order.status, order.delivery_type, 'admin')}
                   </span>
                 </div>
               </div>
@@ -254,7 +277,7 @@ export default async function AdminDashboardPage() {
                 <div>
                   <b>Создан заказ #{order.order_number}</b>
                   <span>
-                    {order.full_name || order.email || 'Сотрудник'} · {statusLabels[order.status]}
+                    {order.full_name || order.email || 'Сотрудник'} · {getStatusLabel(order.status, order.delivery_type, 'admin')}
                   </span>
                 </div>
                 <small>{formatRelativeDate(order.created_at)}</small>
@@ -297,17 +320,23 @@ function KpiCard({
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 function getStatusDotClass(status: OrderStatus) {
-  if (status === 'new'       || status === 'review')     return 'dash-status-dot-amber'
-  if (status === 'confirmed' || status === 'assembling') return 'dash-status-dot-blue'
-  if (status === 'shipped'   || status === 'received')   return 'dash-status-dot-green'
-  return 'dash-status-dot-red'
+  return `dash-status-dot-${getStatusTone(status)}`
 }
 
 function getStatusBadgeClass(status: OrderStatus) {
-  if (status === 'shipped'   || status === 'received')   return 'dash-badge dash-badge-green'
-  if (status === 'confirmed' || status === 'assembling') return 'dash-badge dash-badge-blue'
-  if (status === 'cancelled' || status === 'rejected')   return 'dash-badge dash-badge-red'
-  return 'dash-badge dash-badge-amber'
+  return `dash-badge dash-badge-${getStatusTone(status)}`
+}
+
+function formatDay(value: string | null) {
+  if (!value) return '—'
+  return new Date(`${value.slice(0, 10)}T00:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+}
+
+function isOverdue(value: string | null) {
+  if (!value) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return new Date(`${value.slice(0, 10)}T00:00:00`) < today
 }
 
 function formatVariant(size: string | null, color: string | null) {

@@ -3,13 +3,15 @@
 
 export type OrderStatus =
   | 'new'
-  | 'review'
-  | 'confirmed'
   | 'assembling'
+  | 'ready'
   | 'shipped'
   | 'received'
   | 'cancelled'
   | 'rejected'
+  /** Retired in stage 2: kept only because old enum values cannot be dropped. */
+  | 'review'
+  | 'confirmed'
 
 export type DeliveryType = 'office' | 'pvz' | 'pickup' | 'courier' | 'post'
 
@@ -25,15 +27,17 @@ export type MovementType =
   | 'return'
   | 'adjustment'
 
+/** Prefer getStatusLabel() from lib/orderStatus: labels depend on the branch. */
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
-  new:        'Новый заказ',
-  review:     'На проверке',
-  confirmed:  'Подтвержден',
-  assembling: 'Собирается',
-  shipped:    'Отправлен',
+  new:        'Заявка',
+  assembling: 'Сборка',
+  ready:      'Можно забирать',
+  shipped:    'Отправлено',
   received:   'Получен',
-  cancelled:  'Отменен',
-  rejected:   'Отклонен',
+  cancelled:  'Отменён',
+  rejected:   'Отклонён',
+  review:     'На проверке',
+  confirmed:  'Подтверждён',
 }
 
 export const DELIVERY_TYPE_LABELS: Record<DeliveryType, string> = {
@@ -293,6 +297,11 @@ export type Database = {
           handed_to:        string | null
           is_remote:        boolean
           country:          string | null
+          pickup_code:      string
+          ready_at:         string | null
+          handed_by:        string | null
+          trip_from:        string | null
+          trip_until:       string | null
           created_at:       string
           confirmed_at:     string | null
           shipped_at:       string | null
@@ -446,6 +455,19 @@ export type Database = {
           p_comment:          string | null
           p_is_remote:        boolean
           p_country:          string | null
+          p_trip_from?:       string | null
+          p_trip_until?:      string | null
+        }
+        Returns: unknown
+      }
+      admin_set_order_status: {
+        Args: {
+          p_order_id:          string
+          p_status:            OrderStatus
+          p_admin_comment?:    string | null
+          p_tracking_number?:  string | null
+          p_handed_to?:        string | null
+          p_storage_location?: string | null
         }
         Returns: unknown
       }
