@@ -3,6 +3,7 @@
 import AdminShell from '@/components/AdminShell'
 import ProductImage from '@/components/ProductImage'
 import ProductImageUploader from '@/components/ProductImageUploader'
+import { countLowStockVariants, DEFAULT_LOW_STOCK_THRESHOLD, getAvailableQty, getLowStockThreshold } from '@/lib/stock'
 import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
@@ -35,6 +36,8 @@ export type AdminProduct = {
   image_url: string | null
   images: string[]
   is_active: boolean
+  archived_at: string | null
+  low_stock_threshold: number
   created_at: string
   updated_at: string
   categories: AdminCategory | AdminCategory[] | null
@@ -49,6 +52,7 @@ type Props = {
 }
 
 type StockFilter = 'all' | 'low' | 'zero' | 'normal'
+type View = 'catalog' | 'archive'
 
 export default function AdminProductsClient({
   products,
@@ -67,16 +71,22 @@ export default function AdminProductsClient({
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null)
   const [editingProductId,  setEditingProductId]  = useState<string | null>(null)
   const [isCreateOpen,      setIsCreateOpen]      = useState(false)
+  const [view,              setView]              = useState<View>('catalog')
+
+  const liveProducts     = useMemo(() => products.filter((p) => !p.archived_at), [products])
+  const archivedProducts = useMemo(() => products.filter((p) => Boolean(p.archived_at)), [products])
 
   useEffect(() => { setSearch(queryFromUrl) }, [queryFromUrl])
 
   const filteredProducts = useMemo(() => {
     const value = search.trim().toLowerCase()
 
-    return products.filter((product) => {
+    const base = view === 'archive' ? archivedProducts : liveProducts
+
+    return base.filter((product) => {
       const stats = getProductStats(product)
 
-      const activeMatch   = showInactive || product.is_active
+      const activeMatch   = view === 'archive' || showInactive || product.is_active
       const categoryMatch = selectedCategory === 'all' || product.category_id === selectedCategory
       const stockMatch    =
         stockFilter === 'all' ||
@@ -96,18 +106,18 @@ export default function AdminProductsClient({
 
       return activeMatch && categoryMatch && stockMatch && searchMatch
     })
-  }, [products, search, selectedCategory, stockFilter, showInactive])
+  }, [view, archivedProducts, liveProducts, search, selectedCategory, stockFilter, showInactive])
 
   const totals = useMemo(() => {
-    const totalProducts  = products.length
-    const activeProducts = products.filter((p) => p.is_active).length
-    const totalVariants  = products.reduce((s, p) => s + p.product_variants.length, 0)
-    const totalQty       = products.reduce((s, p) => s + getProductStats(p).totalQty, 0)
-    const reservedQty    = products.reduce((s, p) => s + getProductStats(p).reservedQty, 0)
+    const totalProducts  = liveProducts.length
+    const activeProducts = liveProducts.filter((p) => p.is_active).length
+    const totalVariants  = liveProducts.reduce((s, p) => s + p.product_variants.length, 0)
+    const totalQty       = liveProducts.reduce((s, p) => s + getProductStats(p).totalQty, 0)
+    const reservedQty    = liveProducts.reduce((s, p) => s + getProductStats(p).reservedQty, 0)
     const availableQty   = Math.max(0, totalQty - reservedQty)
-    const lowVariants    = products.reduce((s, p) => s + getProductStats(p).lowVariants, 0)
-    return { totalProducts, activeProducts, totalVariants, totalQty, reservedQty, availableQty, lowVariants }
-  }, [products])
+    const beacons        = countLowStockVariants(liveProducts)
+    return { totalProducts, activeProducts, totalVariants, totalQty, reservedQty, availableQty, beacons }
+  }, [liveProducts])
 
   function handleExportStockCsv() {
     const rows = filteredProducts.flatMap((product) => {
@@ -116,7 +126,8 @@ export default function AdminProductsClient({
         product_name:          product.name,
         category:              getCategoryName(product),
         material:              product.material || '',
-        product_status:        product.is_active ? 'Активен' : 'Отключён',
+        product_status:        product.archived_at ? 'В архиве' : product.is_active ? 'Активен' : 'Отключён',
+        low_stock_threshold:   String(getLowStockThreshold(product)),
         product_total_qty:     String(productStats.totalQty),
         product_reserved_qty:  String(productStats.reservedQty),
         product_available_qty: String(productStats.availableQty),
@@ -132,7 +143,7 @@ export default function AdminProductsClient({
         const totalQty     = Number(variant.total_qty)
         const reservedQty  = Number(variant.reserved_qty)
         const availableQty = Math.max(0, totalQty - reservedQty)
-        const stockStatus  = availableQty <= 0 ? 'В нуле' : availableQty <= 4 ? 'Низкий остаток' : 'Норма'
+        const stockStatus  = availableQty <= 0 ? 'В нуле' : availableQty <= getLowStockThreshold(product) ? 'Низкий остаток' : 'Норма'
         return { ...baseRow, variant_size: variant.size || 'ONE SIZE', variant_color: variant.color || 'Без цвета', sku: variant.sku || '', variant_status: variant.is_active ? 'Активен' : 'Отключён', total_qty: String(totalQty), reserved_qty: String(reservedQty), available_qty: String(availableQty), stock_status: stockStatus }
       })
     })
@@ -155,9 +166,31 @@ export default function AdminProductsClient({
       title={isCardsMode ? 'Карточки товара' : 'Товары и остатки'}
       subtitle="Админ-панель · merch.uzum.tech"
       orderCount={orderCount}
-      stockAlertCount={totals.lowVariants}
+      stockAlertCount={totals.beacons}
     >
       <section className="ap-page">
+
+        {/* Catalog / archive */}
+        <section className="ap-view-tabs" role="tablist" aria-label="Каталог или архив">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'catalog'}
+            onClick={() => { setView('catalog'); setEditingProductId(null); setExpandedProductId(null) }}
+            className={`ap-view-tab${view === 'catalog' ? ' ap-view-tab-active' : ''}`}
+          >
+            Товары <span>{liveProducts.length}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'archive'}
+            onClick={() => { setView('archive'); setEditingProductId(null); setExpandedProductId(null) }}
+            className={`ap-view-tab${view === 'archive' ? ' ap-view-tab-active' : ''}`}
+          >
+            Архив <span>{archivedProducts.length}</span>
+          </button>
+        </section>
 
         {/* Category tabs */}
         <section className="ap-cat-tabs">
@@ -238,16 +271,18 @@ export default function AdminProductsClient({
         </section>
 
         {/* Mode notice */}
-        <section className={isCardsMode ? 'ap-mode-notice-cards' : 'ap-mode-notice'}>
-          <div>
-            <b>{isCardsMode ? 'Режим карточек товара' : 'Режим склада'}</b>
-            <span>
-              {isCardsMode
-                ? ' Клик по строке открывает редактирование карточки, фото, описания и вариантов.'
-                : ' Клик по строке раскрывает складские варианты и остатки.'}
-            </span>
-          </div>
-        </section>
+        {view === 'catalog' && (
+          <section className={isCardsMode ? 'ap-mode-notice-cards' : 'ap-mode-notice'}>
+            <div>
+              <b>{isCardsMode ? 'Режим карточек товара' : 'Режим склада'}</b>
+              <span>
+                {isCardsMode
+                  ? ' Клик по строке открывает редактирование карточки, фото, описания и вариантов.'
+                  : ' Клик по строке раскрывает складские варианты и остатки.'}
+              </span>
+            </div>
+          </section>
+        )}
 
         {/* Create product panel */}
         {isCreateOpen && (
@@ -255,22 +290,37 @@ export default function AdminProductsClient({
         )}
 
         {/* Summary strip */}
-        <section className="ap-summary-strip">
-          <SummaryMetric label="Товаров"   value={String(totals.totalProducts)} />
-          <SummaryMetric label="Активных"  value={String(totals.activeProducts)} />
-          <SummaryMetric label="Вариантов" value={String(totals.totalVariants)} />
-          <SummaryMetric label="На складе" value={`${totals.totalQty} шт.`} />
-          <SummaryMetric label="В резерве" value={`${totals.reservedQty} шт.`} />
-          <SummaryMetric label="Доступно"  value={`${totals.availableQty} шт.`} />
-          <SummaryMetric label="Низкие"    value={String(totals.lowVariants)} tone="pink" />
-        </section>
+        {view === 'catalog' && (
+          <section className="ap-summary-strip">
+            <SummaryMetric label="Товаров"   value={String(totals.totalProducts)} />
+            <SummaryMetric label="Активных"  value={String(totals.activeProducts)} />
+            <SummaryMetric label="Вариантов" value={String(totals.totalVariants)} />
+            <SummaryMetric label="На складе" value={`${totals.totalQty} шт.`} />
+            <SummaryMetric label="В резерве" value={`${totals.reservedQty} шт.`} />
+            <SummaryMetric label="Доступно"  value={`${totals.availableQty} шт.`} />
+            <SummaryMetric label="Маячки"    value={String(totals.beacons)} tone="pink" />
+          </section>
+        )}
 
         {/* Content */}
         {filteredProducts.length === 0 ? (
           <section className="ap-empty-card">
             <div className="ap-empty-mark">∅</div>
-            <h2 className="ap-empty-title">Товары не найдены</h2>
-            <p className="ap-empty-text">Измените поиск, категорию или складской фильтр.</p>
+            <h2 className="ap-empty-title">
+              {view === 'archive' ? 'В архиве пусто' : 'Товары не найдены'}
+            </h2>
+            <p className="ap-empty-text">
+              {view === 'archive'
+                ? 'Сюда попадают товары, отправленные в архив из карточки товара.'
+                : 'Измените поиск, категорию или складской фильтр.'}
+            </p>
+          </section>
+
+        ) : view === 'archive' ? (
+          <section className="ap-product-list">
+            {filteredProducts.map((product) => (
+              <ArchivedRow key={product.id} product={product} />
+            ))}
           </section>
 
         ) : isCardsMode ? (
@@ -358,6 +408,7 @@ function CreateProductCard({
   const [material,    setMaterial]    = useState('')
   const [categoryId,  setCategoryId]  = useState(categories[0]?.id ?? '')
   const [imageUrl,    setImageUrl]    = useState('')
+  const [threshold,   setThreshold]   = useState(String(DEFAULT_LOW_STOCK_THRESHOLD))
   const [isSaving,    setIsSaving]    = useState(false)
   const [error,       setError]       = useState<string | null>(null)
 
@@ -377,6 +428,7 @@ function CreateProductCard({
           category_id: categoryId || null,
           image_url: imageUrl,
           is_active: true,
+          low_stock_threshold: threshold,
         }),
       })
 
@@ -421,6 +473,8 @@ function CreateProductCard({
           Материал
           <input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Например: хлопок" className="ap-input" />
         </label>
+
+        <ThresholdField value={threshold} onChange={setThreshold} />
 
         <label className="ap-label-wide">
           Описание
@@ -655,9 +709,32 @@ function ProductMainEditor({
   const [categoryId,  setCategoryId]  = useState(product.category_id ?? '')
   const [imageUrl,    setImageUrl]    = useState(product.image_url ?? '')
   const [isActive,    setIsActive]    = useState(product.is_active)
+  const [threshold,   setThreshold]   = useState(String(getLowStockThreshold(product)))
   const [isSaving,    setIsSaving]    = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(false)
   const [message,     setMessage]     = useState<string | null>(null)
   const [error,       setError]       = useState<string | null>(null)
+
+  async function handleArchive() {
+    if (!confirmArchive) { setConfirmArchive(true); return }
+    setIsSaving(true); setMessage(null); setError(null)
+
+    try {
+      const response = await fetch('/api/admin/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'archive_product', product_id: product.id }),
+      })
+      const result = await response.json()
+      if (!response.ok) { setError(result.error || 'Не удалось отправить в архив'); return }
+      router.refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
+    } finally {
+      setIsSaving(false)
+      setConfirmArchive(false)
+    }
+  }
 
   async function handleUpdateProduct() {
     setIsSaving(true); setMessage(null); setError(null)
@@ -673,6 +750,7 @@ function ProductMainEditor({
           category_id: categoryId || null,
           image_url: imageUrl,
           is_active: isActive,
+          low_stock_threshold: threshold,
         }),
       })
 
@@ -725,6 +803,8 @@ function ProductMainEditor({
           <input value={material} onChange={(e) => setMaterial(e.target.value)} className="ap-input" />
         </label>
 
+        <ThresholdField value={threshold} onChange={setThreshold} />
+
         <div className="ap-label-wide">
           <ProductImageUploader value={imageUrl} onChange={setImageUrl} productId={product.id} label="IMAGE_URL" />
         </div>
@@ -733,9 +813,24 @@ function ProductMainEditor({
       {error   && <div className="ap-error">{error}</div>}
       {message && <div className="ap-success">{message}</div>}
 
-      <button type="button" onClick={handleUpdateProduct} disabled={isSaving} className="ap-save-btn">
-        {isSaving ? 'Сохраняем...' : 'Сохранить товар'}
-      </button>
+      <div className="ap-editor-actions">
+        <button type="button" onClick={handleUpdateProduct} disabled={isSaving} className="ap-save-btn">
+          {isSaving ? 'Сохраняем...' : 'Сохранить товар'}
+        </button>
+        <button
+          type="button"
+          onClick={handleArchive}
+          disabled={isSaving}
+          className={`ap-archive-btn${confirmArchive ? ' ap-archive-btn-confirm' : ''}`}
+          onBlur={() => setConfirmArchive(false)}
+        >
+          {confirmArchive ? 'Точно в архив? Нажмите ещё раз' : 'В архив'}
+        </button>
+      </div>
+      <p className="ap-archive-hint">
+        Архив скрывает товар из каталога и складских списков. Если такой же айтем
+        снова появится — восстановите карточку во вкладке «Архив» и пополните остаток.
+      </p>
     </section>
   )
 }
@@ -827,7 +922,7 @@ function VariantsEditor({ product }: { product: AdminProduct }) {
             <div>Действия</div>
           </div>
           {sortedVariants.map((variant) => (
-            <VariantRow key={variant.id} variant={variant} />
+            <VariantRow key={variant.id} variant={variant} threshold={getLowStockThreshold(product)} />
           ))}
         </div>
       )}
@@ -839,7 +934,7 @@ function VariantsEditor({ product }: { product: AdminProduct }) {
 /*  VariantRow                                                                   */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-function VariantRow({ variant }: { variant: AdminVariant }) {
+function VariantRow({ variant, threshold }: { variant: AdminVariant; threshold: number }) {
   const router = useRouter()
 
   const [size,         setSize]         = useState(variant.size ?? '')
@@ -904,7 +999,7 @@ function VariantRow({ variant }: { variant: AdminVariant }) {
 
         <b>{variant.total_qty}</b>
         <span>{variant.reserved_qty}</span>
-        <b className={availableQty <= 4 ? 'ap-low-qty' : ''}>{availableQty}</b>
+        <b className={availableQty <= threshold ? 'ap-low-qty' : ''}>{availableQty}</b>
 
         <label className="ap-active-label">
           <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
@@ -944,6 +1039,91 @@ function VariantRow({ variant }: { variant: AdminVariant }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
+/*  ThresholdField                                                               */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function ThresholdField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="ap-label">
+      Маячок остатка, шт.
+      <input
+        type="number"
+        min={0}
+        max={1000}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="ap-input"
+      />
+      <span className="ap-field-hint">Предупредим на дашборде, когда доступно столько или меньше</span>
+    </label>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  ArchivedRow                                                                  */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function ArchivedRow({ product }: { product: AdminProduct }) {
+  const router   = useRouter()
+  const stats    = getProductStats(product)
+  const imageUrl = product.image_url || product.images?.[0] || ''
+
+  const [isSaving, setIsSaving] = useState(false)
+  const [error,    setError]    = useState<string | null>(null)
+
+  async function handleRestore() {
+    setIsSaving(true); setError(null)
+
+    try {
+      const response = await fetch('/api/admin/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore_product', product_id: product.id }),
+      })
+      const result = await response.json()
+      if (!response.ok) { setError(result.error || 'Не удалось восстановить'); return }
+      router.refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <article className="ap-product-card ap-product-card-archived">
+      <div className="ap-product-row">
+        <div className="ap-product-art">
+          {imageUrl ? (
+            <ProductImage src={imageUrl} alt={product.name} className="ap-product-image" sizes="64px" />
+          ) : (
+            <div className="ap-product-placeholder">{getProductLetter(product.name)}</div>
+          )}
+        </div>
+
+        <div className="ap-product-name-cell">
+          <span>{getCategoryName(product)}</span>
+          <b>{product.name}</b>
+          <small>В архиве с {formatDate(product.archived_at)}</small>
+        </div>
+
+        <Metric label="Всего на складе" value={`${stats.totalQty} шт.`} />
+        <Metric label="Резерв"          value={`${stats.reservedQty} шт.`} />
+        <Metric label="Вариантов"       value={String(product.product_variants.length)} />
+        <div />
+
+        <div className="ap-row-actions">
+          <button type="button" className="ap-light-btn" onClick={handleRestore} disabled={isSaving}>
+            {isSaving ? 'Восстанавливаем…' : 'Восстановить'}
+          </button>
+        </div>
+      </div>
+      {error && <div className="ap-error">{error}</div>}
+    </article>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
 /*  SummaryMetric · Metric                                                       */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
@@ -973,11 +1153,22 @@ function getProductStats(product: AdminProduct) {
   const totalQty    = product.product_variants.reduce((s, v) => s + Number(v.total_qty), 0)
   const reservedQty = product.product_variants.reduce((s, v) => s + Number(v.reserved_qty), 0)
   const active      = product.product_variants.filter((v) => v.is_active)
+  const threshold   = getLowStockThreshold(product)
 
-  const zeroVariants = active.filter((v) => Number(v.total_qty) - Number(v.reserved_qty) <= 0).length
-  const lowVariants  = active.filter((v) => { const a = Number(v.total_qty) - Number(v.reserved_qty); return a > 0 && a <= 4 }).length
+  const zeroVariants = active.filter((v) => getAvailableQty(v) <= 0).length
+  const lowVariants  = active.filter((v) => { const a = getAvailableQty(v); return a > 0 && a <= threshold }).length
 
-  return { totalQty, reservedQty, availableQty: Math.max(0, totalQty - reservedQty), zeroVariants, lowVariants }
+  return { totalQty, reservedQty, availableQty: Math.max(0, totalQty - reservedQty), zeroVariants, lowVariants, threshold }
+}
+
+function formatDate(value: string | null) {
+  if (!value) return '—'
+  return new Date(value).toLocaleDateString('ru-RU', {
+    timeZone: 'Asia/Tashkent',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
 }
 
 function getCategoryName(product: AdminProduct): string {

@@ -11,7 +11,11 @@ export type OrderStatus =
   | 'cancelled'
   | 'rejected'
 
-export type DeliveryType = 'office' | 'pvz' | 'pickup' | 'courier'
+export type DeliveryType = 'office' | 'pvz' | 'pickup' | 'courier' | 'post'
+
+/** Delivery types an employee can pick for a new order. */
+export const ACTIVE_DELIVERY_TYPES = ['office', 'post'] as const
+export type ActiveDeliveryType = (typeof ACTIVE_DELIVERY_TYPES)[number]
 
 export type MovementType =
   | 'income'
@@ -33,8 +37,9 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 }
 
 export const DELIVERY_TYPE_LABELS: Record<DeliveryType, string> = {
-  office:  'В офис',
-  pvz:     'ПВЗ / Филиал',
+  office:  'В офисе',
+  post:    'Почтой',
+  pvz:     'ПВЗ / филиал',
   pickup:  'Самовывоз',
   courier: 'Курьер',
 }
@@ -153,6 +158,8 @@ export type Database = {
           image_url:   string | null
           images:      string[]
           is_active:   boolean
+          archived_at: string | null
+          low_stock_threshold: number
           created_at:  string
           updated_at:  string
         }
@@ -165,6 +172,8 @@ export type Database = {
           image_url?:   string | null
           images?:      string[]
           is_active?:   boolean
+          archived_at?: string | null
+          low_stock_threshold?: number
         }
         Update: Partial<Database['public']['Tables']['products']['Insert']>
         Relationships: [
@@ -338,6 +347,10 @@ export type Database = {
           handout_deadline: string | null
           handout_place:    string | null
           handout_note:     string | null
+          support_label:    string | null
+          support_url:      string | null
+          order_window_start: string | null
+          max_items_per_employee: number
           updated_at:       string
         }
         Insert: {
@@ -345,6 +358,10 @@ export type Database = {
           handout_deadline?: string | null
           handout_place?:    string | null
           handout_note?:     string | null
+          support_label?:    string | null
+          support_url?:      string | null
+          order_window_start?: string | null
+          max_items_per_employee?: number
           updated_at?:       string
         }
         Update: Partial<Database['public']['Tables']['merch_settings']['Insert']>

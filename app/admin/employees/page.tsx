@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
 import AdminEmployeesClient, { type DirectoryEmployee } from './AdminEmployeesClient'
+import { countLowStockVariants } from '@/lib/stock'
 
 export default async function AdminEmployeesPage() {
   const supabase = await createClient()
@@ -65,7 +66,7 @@ export default async function AdminEmployeesPage() {
         .select('id'),
       supabase
         .from('products')
-        .select('id, product_variants ( id, total_qty, reserved_qty, is_active )'),
+        .select('id, is_active, archived_at, low_stock_threshold, product_variants ( id, total_qty, reserved_qty, is_active )'),
     ])
 
   if (directoryError) {
@@ -80,16 +81,7 @@ export default async function AdminEmployeesPage() {
     )
   }
 
-  const stockAlertCount =
-    productsForStock?.reduce((sum, product) => {
-      const variants = product.product_variants ?? []
-      const lowCount = variants.filter((variant) => {
-        if (!variant.is_active) return false
-        const available = Number(variant.total_qty) - Number(variant.reserved_qty)
-        return available > 0 && available <= 4
-      }).length
-      return sum + lowCount
-    }, 0) ?? 0
+  const stockAlertCount = countLowStockVariants(productsForStock ?? [])
 
   return (
     <AdminEmployeesClient

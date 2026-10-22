@@ -7,6 +7,13 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseHost = supabaseUrl ? new URL(supabaseUrl).hostname : undefined
 
 const nextConfig = {
+  // The profile page was removed: contacts and delivery are now entered in
+  // the cart for every order. Keep old links and bookmarks working.
+  async redirects() {
+    return [
+      { source: '/profile', destination: '/orders', permanent: false },
+    ]
+  },
   images: {
     remotePatterns: supabaseHost
       ? [

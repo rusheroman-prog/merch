@@ -1,11 +1,14 @@
 import AppNav from '@/components/AppNav'
 import OrderBarcode from '@/components/OrderBarcode'
+import OrderQrDownload from '@/components/OrderQrDownload'
+import SupportLink from '@/components/SupportLink'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
+import { getSupportContact, type SupportContact } from '@/lib/support'
 import { decline, getProductLetter } from '@/lib/utils'
-import type { DeliveryType, OrderStatus } from '@/lib/supabase/types'
+import { DELIVERY_TYPE_LABELS, type DeliveryType, type OrderStatus } from '@/lib/supabase/types'
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  Types                                                                       */
@@ -35,6 +38,8 @@ type Order = {
   comment: string | null
   admin_comment: string | null
   tracking_number: string | null
+  is_remote: boolean | null
+  country: string | null
   created_at: string
   confirmed_at: string | null
   shipped_at: string | null
@@ -69,13 +74,6 @@ const statusPillClass: Record<OrderStatus, string> = {
   rejected:   'pill pill-red',
 }
 
-const deliveryLabels: Record<DeliveryType, string> = {
-  office:  'В офис',
-  pvz:     'ПВЗ / филиал',
-  pickup:  'Самовывоз',
-  courier: 'Курьер',
-}
-
 const flowStatuses: OrderStatus[] = [
   'new', 'review', 'confirmed', 'assembling', 'shipped', 'received',
 ]
@@ -102,7 +100,7 @@ export default async function OrdersPage() {
     .select(`
       id, order_number, status, delivery_type, delivery_address,
       full_name, phone, email, city, department,
-      comment, admin_comment, tracking_number,
+      comment, admin_comment, tracking_number, is_remote, country,
       created_at, confirmed_at, shipped_at, received_at, cancelled_at,
       order_items ( id, product_id, product_name, size, color, sku, qty )
     `)
@@ -111,11 +109,12 @@ export default async function OrdersPage() {
 
   const { data: settings } = await supabase
     .from('merch_settings')
-    .select('handout_deadline, handout_place, handout_note')
+    .select('handout_deadline, handout_place, handout_note, support_label, support_url')
     .eq('id', 1)
     .maybeSingle()
 
   const isAdmin = Boolean(employee?.is_admin)
+  const support = getSupportContact(settings)
 
   /* ── Error state ───────────────────────────────────────────────────────── */
   if (error) {
@@ -182,6 +181,16 @@ export default async function OrdersPage() {
           </div>
         )}
 
+        {support && (
+          <div className="support-card">
+            <span className="support-card-icon" aria-hidden="true">?</span>
+            <span>
+              <b>Вопросы по заказу?</b>{' '}
+              Напишите нам: <SupportLink contact={support} className="support-link" />
+            </span>
+          </div>
+        )}
+
         {/* ── Orders list ── */}
         {orders.length === 0 ? (
           <div className="orders-empty">
@@ -195,7 +204,7 @@ export default async function OrdersPage() {
         ) : (
           <div className="orders-list">
             {orders.map(order => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} support={support} />
             ))}
           </div>
         )}
@@ -249,7 +258,7 @@ function StatCard({ label, value }: { label: string; value: number }) {
 /*  OrderCard                                                                   */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-function OrderCard({ order }: { order: Order }) {
+function OrderCard({ order, support }: { order: Order; support: SupportContact | null }) {
   const items    = order.order_items ?? []
   const totalQty = items.reduce((s, i) => s + Number(i.qty), 0)
 
@@ -297,9 +306,13 @@ function OrderCard({ order }: { order: Order }) {
           <p className="order-side-main">
             {isReceived && order.received_at
               ? formatDateShort(order.received_at)
-              : deliveryLabels[order.delivery_type]}
+              : DELIVERY_TYPE_LABELS[order.delivery_type] ?? order.delivery_type}
           </p>
-          <p className="order-side-mute">{order.delivery_address || 'Адрес не указан'}</p>
+          <p className="order-side-mute">
+            {order.delivery_type === 'post'
+              ? [order.country, order.delivery_address].filter(Boolean).join(', ') || 'Адрес не указан'
+              : order.delivery_address || 'Место выдачи сообщим'}
+          </p>
         </div>
       </div>
 
@@ -358,6 +371,9 @@ function OrderCard({ order }: { order: Order }) {
                 ? 'Заказ уже получен.'
                 : 'Покажите этот код при получении мерча — по нему вас найдут в списке.'}
             </span>
+            {!isReceived && (
+              <OrderQrDownload value={order.order_number} orderNumber={order.order_number} />
+            )}
           </div>
         </div>
       )}
@@ -380,6 +396,12 @@ function OrderCard({ order }: { order: Order }) {
             <span className="order-foot-mute">
               Статус обновляется администратором
             </span>
+          )}
+          {support?.href && (
+            <SupportLink
+              contact={{ label: 'Вопрос по заказу →', href: support.href }}
+              className="order-foot-link"
+            />
           )}
         </div>
       </div>

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
 import AdminOrdersClient, { type AdminOrder } from './AdminOrdersClient'
+import { countLowStockVariants } from '@/lib/stock'
 
 export default async function AdminOrdersPage() {
   const supabase = await createClient()
@@ -100,6 +101,9 @@ export default async function AdminOrdersPage() {
     .select(
       `
       id,
+      is_active,
+      archived_at,
+      low_stock_threshold,
       product_variants (
         id,
         total_qty,
@@ -109,16 +113,7 @@ export default async function AdminOrdersPage() {
     `
     )
 
-  const stockAlertCount =
-    productsForStock?.reduce((sum, product) => {
-      const variants = product.product_variants ?? []
-      const lowCount = variants.filter((variant) => {
-        if (!variant.is_active) return false
-        const available = Number(variant.total_qty) - Number(variant.reserved_qty)
-        return available > 0 && available <= 4
-      }).length
-      return sum + lowCount
-    }, 0) ?? 0
+  const stockAlertCount = countLowStockVariants(productsForStock ?? [])
 
   if (error) {
     return (

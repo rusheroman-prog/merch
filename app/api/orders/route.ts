@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { ACTIVE_DELIVERY_TYPES, type ActiveDeliveryType } from '@/lib/supabase/types'
 
 type CheckoutItem = {
   variant_id: string
@@ -8,15 +9,12 @@ type CheckoutItem = {
 
 type CheckoutPayload = {
   items: CheckoutItem[]
-  delivery_type?: 'office' | 'pvz' | 'pickup' | 'courier'
+  delivery_type?: string
   delivery_address?: string
   phone?: string
   comment?: string
-  is_remote?: boolean
   country?: string
 }
-
-const MAX_UNIQUE_PRODUCTS = 3
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,6 +67,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const deliveryType = (body.delivery_type ?? 'office') as ActiveDeliveryType
+
+    if (!ACTIVE_DELIVERY_TYPES.includes(deliveryType)) {
+      return NextResponse.json({ error: 'delivery_type_not_available' }, { status: 400 })
+    }
+
+    const phone = body.phone?.trim() || null
+    const deliveryAddress = body.delivery_address?.trim() || null
+    const isPost = deliveryType === 'post'
+
+    // The profile page is gone: the phone given at checkout is the only
+    // contact besides email, so it is required for every order.
+    if (!phone) {
+      return NextResponse.json({ error: 'phone_required' }, { status: 400 })
+    }
+
+    if (isPost && !deliveryAddress) {
+      return NextResponse.json({ error: 'delivery_address_required' }, { status: 400 })
+    }
+
     const { data: accessRows, error: accessError } = await supabase.rpc(
       'get_employee_merch_access',
       { p_email: user.email ?? '' }
@@ -103,25 +121,20 @@ export async function POST(request: NextRequest) {
 
     const uniqueProductIds = new Set((variants ?? []).map((variant) => variant.product_id))
 
-    if (uniqueProductIds.size > MAX_UNIQUE_PRODUCTS) {
-      return NextResponse.json({ error: 'max_unique_products_exceeded' }, { status: 400 })
-    }
-
     if (uniqueProductIds.size !== items.length) {
       return NextResponse.json({ error: 'one_variant_per_product_only' }, { status: 400 })
     }
 
-    const isRemote = body.is_remote === true
-    const country = isRemote ? (body.country?.trim() || null) : null
-
+    // Item limits across orders (per employee, per order window) are enforced
+    // by create_merch_order, which reads them from merch_settings.
     const { data, error } = await supabase.rpc('create_merch_order', {
       p_items: items,
-      p_delivery_type: body.delivery_type ?? 'office',
-      p_delivery_address: body.delivery_address ?? null,
-      p_phone: body.phone ?? null,
-      p_comment: body.comment ?? null,
-      p_is_remote: isRemote,
-      p_country: country,
+      p_delivery_type: deliveryType,
+      p_delivery_address: isPost ? deliveryAddress : null,
+      p_phone: phone,
+      p_comment: body.comment?.trim() || null,
+      p_is_remote: isPost,
+      p_country: isPost ? body.country?.trim() || null : null,
     })
 
     if (error) {
