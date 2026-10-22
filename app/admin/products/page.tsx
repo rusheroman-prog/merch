@@ -86,6 +86,8 @@ export default async function AdminProductsPage() {
       image_url,
       images,
       is_active,
+      archived_at,
+      low_stock_threshold,
       created_at,
       updated_at,
       categories (

@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
+import { getSupportContact } from '@/lib/support'
+import { ACTIVE_DELIVERY_TYPES, type ActiveDeliveryType } from '@/lib/supabase/types'
 import CatalogClient, {
   type CatalogProduct,
   type CatalogVariant,
@@ -27,6 +29,18 @@ type CatalogQueryProduct = {
   product_variants: CatalogQueryVariant[] | null
 }
 
+type MyOrderRow = {
+  status: string
+  created_at: string
+  delivery_type: string
+  delivery_address: string | null
+  phone: string | null
+  country: string | null
+  order_items: Array<{ product_id: string }> | null
+}
+
+const DEFAULT_MAX_ITEMS = 3
+
 export default async function CatalogPage() {
   const supabase = await createClient()
 
@@ -42,20 +56,49 @@ export default async function CatalogPage() {
     redirect('/set-password')
   }
 
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('full_name, is_admin, phone, city, office, department, business_unit, hired_at, is_active')
-    .eq('id', user.id)
-    .maybeSingle()
+  const [
+    { data: employee },
+    { data: accessRows },
+    { data: settings },
+    { data: myOrders },
+  ] = await Promise.all([
+    supabase
+      .from('employees')
+      .select('full_name, is_admin, phone, hired_at')
+      .eq('id', user.id)
+      .maybeSingle(),
+    supabase.rpc('get_employee_merch_access', { p_email: user.email ?? '' }),
+    supabase
+      .from('merch_settings')
+      .select('handout_place, support_label, support_url, order_window_start, max_items_per_employee')
+      .eq('id', 1)
+      .maybeSingle(),
+    supabase
+      .from('orders')
+      .select('status, created_at, delivery_type, delivery_address, phone, country, order_items ( product_id )')
+      .eq('employee_id', user.id)
+      .order('created_at', { ascending: false }),
+  ])
 
-  const { data: accessRows } = await supabase.rpc('get_employee_merch_access', {
-    p_email: user.email ?? '',
-  })
   const access = Array.isArray(accessRows) ? accessRows[0] : null
 
-  const defaultDeliveryAddress = [employee?.city, employee?.office]
-    .filter(Boolean)
-    .join(', ')
+  // Limits mirror create_merch_order: count active orders in the current window.
+  const windowStart = settings?.order_window_start ?? null
+  const maxItems = Number(settings?.max_items_per_employee ?? DEFAULT_MAX_ITEMS) || DEFAULT_MAX_ITEMS
+  const orders = (myOrders ?? []) as MyOrderRow[]
+  const ordersInWindow = orders.filter((order) =>
+    !['cancelled', 'rejected'].includes(order.status) &&
+    (!windowStart || new Date(order.created_at) >= new Date(windowStart))
+  )
+  const orderedProductIds = Array.from(new Set(
+    ordersInWindow.flatMap((order) => (order.order_items ?? []).map((item) => item.product_id))
+  ))
+
+  // Contacts are entered in the cart for every order; prefill from the last one.
+  const lastOrder = orders[0]
+  const lastDelivery = lastOrder?.delivery_type as ActiveDeliveryType | undefined
+  const deliveryType: ActiveDeliveryType =
+    lastDelivery && ACTIVE_DELIVERY_TYPES.includes(lastDelivery) ? lastDelivery : 'office'
 
   const { data, error } = await supabase
     .from('products')
@@ -85,6 +128,7 @@ export default async function CatalogPage() {
     `
     )
     .eq('is_active', true)
+    .is('archived_at', null)
     .order('name', { ascending: true })
 
   if (error) {
@@ -139,13 +183,20 @@ export default async function CatalogPage() {
       products={products}
       userEmail={user.email ?? null}
       userName={employee?.full_name ?? null}
-      userDepartment={employee?.business_unit ?? employee?.department ?? null}
       isAdmin={Boolean(employee?.is_admin)}
       checkoutDefaults={{
-        deliveryType: 'office',
-        deliveryAddress: defaultDeliveryAddress,
-        phone: employee?.phone ?? '',
+        deliveryType,
+        deliveryAddress: lastDelivery === 'post' ? lastOrder?.delivery_address ?? '' : '',
+        phone: lastOrder?.phone ?? employee?.phone ?? '',
+        country: lastOrder?.country ?? '',
       }}
+      limits={{
+        maxItems,
+        orderedProductIds,
+        hasWindow: Boolean(windowStart),
+      }}
+      support={getSupportContact(settings)}
+      handoutPlace={settings?.handout_place ?? null}
       merchAccess={{
         isAllowed: Boolean(access?.is_allowed),
         reason: access?.reason ?? 'employee_not_in_directory',

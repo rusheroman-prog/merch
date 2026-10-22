@@ -1,7 +1,8 @@
 import AdminShell from '@/components/AdminShell'
-import DeadlineEditor from '@/components/DeadlineEditor'
+import MerchSettingsEditor from '@/components/MerchSettingsEditor'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
+import { getLowStockVariants } from '@/lib/stock'
 import { redirect } from 'next/navigation'
 
 type OrderStatus =
@@ -43,6 +44,8 @@ type AdminDashProduct = {
   id: string
   name: string
   is_active: boolean
+  archived_at: string | null
+  low_stock_threshold: number | null
   product_variants: AdminDashVariant[]
 }
 
@@ -88,7 +91,7 @@ export default async function AdminDashboardPage() {
     supabase
       .from('products')
       .select(`
-        id, name, is_active,
+        id, name, is_active, archived_at, low_stock_threshold,
         product_variants ( id, size, color, sku, total_qty, reserved_qty, is_active )
       `)
       .order('created_at', { ascending: false }),
@@ -96,7 +99,7 @@ export default async function AdminDashboardPage() {
 
   const { data: settings } = await supabase
     .from('merch_settings')
-    .select('handout_deadline, handout_place, handout_note')
+    .select('handout_deadline, handout_place, handout_note, order_window_start, max_items_per_employee, support_label, support_url')
     .eq('id', 1)
     .maybeSingle()
 
@@ -113,18 +116,17 @@ export default async function AdminDashboardPage() {
 
   const uniqueEmployees = new Set(orders.map(o => o.employee_id)).size
 
-  const lowStockVariants = products.flatMap(product =>
-    product.product_variants
-      .filter(v => v.is_active)
-      .map(v => ({
-        productName:  product.name,
-        sku:          v.sku,
-        size:         v.size,
-        color:        v.color,
-        availableQty: Math.max(0, Number(v.total_qty) - Number(v.reserved_qty)),
-      }))
-      .filter(v => v.availableQty <= 4)
-  )
+  // "Beacons": each product has its own threshold, archived/hidden ones are skipped.
+  const lowStockVariants = getLowStockVariants(products)
+    .map(({ product, variant, availableQty, threshold }) => ({
+      productName:  product.name,
+      sku:          variant.sku,
+      size:         variant.size,
+      color:        variant.color,
+      availableQty,
+      threshold,
+    }))
+    .sort((a, b) => a.availableQty - b.availableQty)
 
   const statusCounters = statusOrder.map(status => ({
     status,
@@ -147,20 +149,24 @@ export default async function AdminDashboardPage() {
       <section className="dash-kpi-grid">
         <KpiCard tone="primary"  label="Активных заказов"        value={String(activeOrders.length)}     hint={`из ${orders.length} всего`} />
         <KpiCard tone="default"  label="Новые за неделю"         value={String(newThisWeek.length)}      hint="заявки за последние 7 дней" />
-        <KpiCard tone="danger"   label="Позиций в дефиците"      value={String(lowStockVariants.length)} hint="≤ 4 шт. доступно" />
+        <KpiCard tone="danger"   label="Сработали маячки"        value={String(lowStockVariants.length)} hint="вариантов на пороге остатка" />
         <KpiCard tone="default"  label="Сотрудников с заказами"  value={String(uniqueEmployees)}         hint="уникальных получателей" />
       </section>
 
-      {/* ── Дедлайн раздачи ── */}
+      {/* ── Настройки раздачи ── */}
       <section className="dash-card">
         <div className="dash-card-head">
-          <h2 className="dash-card-title">Дедлайн раздачи</h2>
-          <span className="dash-card-link">виден сотрудникам</span>
+          <h2 className="dash-card-title">Настройки раздачи</h2>
+          <span className="dash-card-link">видны сотрудникам</span>
         </div>
-        <DeadlineEditor
+        <MerchSettingsEditor
           handoutDeadline={settings?.handout_deadline ?? null}
           handoutPlace={settings?.handout_place ?? null}
           handoutNote={settings?.handout_note ?? null}
+          orderWindowStart={settings?.order_window_start ?? null}
+          maxItemsPerEmployee={Number(settings?.max_items_per_employee ?? 3)}
+          supportLabel={settings?.support_label ?? null}
+          supportUrl={settings?.support_url ?? null}
         />
       </section>
 
@@ -213,18 +219,20 @@ export default async function AdminDashboardPage() {
         {/* Низкие остатки */}
         <div className="dash-card">
           <div className="dash-card-head">
-            <h2 className="dash-card-title">Низкие остатки</h2>
+            <h2 className="dash-card-title">Маячки остатков</h2>
             <a href="/admin/products" className="dash-card-link">В склад →</a>
           </div>
           <div className="dash-stock-list">
             {lowStockVariants.length === 0 ? (
-              <p className="dash-empty-text">Критичных остатков нет.</p>
+              <p className="dash-empty-text">Все остатки выше порога.</p>
             ) : lowStockVariants.slice(0, 7).map((variant, index) => (
               <div key={`${variant.productName}-${variant.sku}-${index}`} className="dash-stock-row">
                 <div className="dash-stock-mark">{variant.availableQty}</div>
                 <div>
                   <b>{variant.productName}</b>
-                  <span>{formatVariant(variant.size, variant.color)} · SKU: {variant.sku || '—'}</span>
+                  <span>
+                    {formatVariant(variant.size, variant.color)} · SKU: {variant.sku || '—'} · порог {variant.threshold} шт.
+                  </span>
                 </div>
               </div>
             ))}

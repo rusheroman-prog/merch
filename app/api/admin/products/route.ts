@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 type AdminProductAction =
   | 'create_product'
   | 'update_product'
+  | 'archive_product'
+  | 'restore_product'
   | 'create_variant'
   | 'update_variant'
   | 'add_stock'
@@ -20,6 +22,7 @@ type Payload = {
   category_id?: string | null
   image_url?: string | null
   is_active?: boolean
+  low_stock_threshold?: number | string | null
 
   size?: string | null
   color?: string | null
@@ -85,6 +88,11 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      const threshold = parseThreshold(body.low_stock_threshold)
+      if (threshold === undefined) {
+        return NextResponse.json({ error: THRESHOLD_ERROR }, { status: 400 })
+      }
+
       const { data, error } = await supabase
         .from('products')
         .insert({
@@ -95,6 +103,7 @@ export async function POST(request: NextRequest) {
           image_url: cleanText(body.image_url),
           images: cleanText(body.image_url) ? [cleanText(body.image_url) as string] : [],
           is_active: body.is_active ?? true,
+          ...(threshold === null ? {} : { low_stock_threshold: threshold }),
         })
         .select('id')
         .single()
@@ -124,6 +133,10 @@ export async function POST(request: NextRequest) {
       }
 
       const imageUrl = cleanText(body.image_url)
+      const threshold = parseThreshold(body.low_stock_threshold)
+      if (threshold === undefined) {
+        return NextResponse.json({ error: THRESHOLD_ERROR }, { status: 400 })
+      }
 
       const { data, error } = await supabase
         .from('products')
@@ -135,6 +148,36 @@ export async function POST(request: NextRequest) {
           image_url: imageUrl,
           images: imageUrl ? [imageUrl] : [],
           is_active: body.is_active ?? true,
+          ...(threshold === null ? {} : { low_stock_threshold: threshold }),
+        })
+        .eq('id', body.product_id)
+        .select('id')
+        .single()
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+
+      return NextResponse.json({ ok: true, product: data })
+    }
+
+    if (body.action === 'archive_product' || body.action === 'restore_product') {
+      if (!body.product_id) {
+        return NextResponse.json(
+          { error: 'Не передан product_id' },
+          { status: 400 }
+        )
+      }
+
+      // Archiving hides the product everywhere. Restoring brings the card
+      // back unpublished, so stock can be checked before it shows up again.
+      const isArchive = body.action === 'archive_product'
+
+      const { data, error } = await supabase
+        .from('products')
+        .update({
+          archived_at: isArchive ? new Date().toISOString() : null,
+          is_active: false,
         })
         .eq('id', body.product_id)
         .select('id')
@@ -304,6 +347,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: message }, { status: 500 })
   }
+}
+
+const THRESHOLD_ERROR = 'Маячок остатка — целое число от 0 до 1000'
+
+/** null when not provided, undefined when invalid. */
+function parseThreshold(value: unknown): number | null | undefined {
+  if (value === undefined || value === null || value === '') return null
+  const number = Number(value)
+  return Number.isInteger(number) && number >= 0 && number <= 1000 ? number : undefined
 }
 
 function cleanText(value: unknown) {

@@ -5,7 +5,7 @@ import OrderBarcode from '@/components/OrderBarcode'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import QRCode from 'qrcode'
-import type { DeliveryType, OrderStatus } from '@/lib/supabase/types'
+import { DELIVERY_TYPE_LABELS, type DeliveryType, type OrderStatus } from '@/lib/supabase/types'
 import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
 
 type PickupStatus = 'pending' | 'packed' | 'handed_owner' | 'handed_other' | 'refused'
@@ -79,12 +79,7 @@ const statusLabels: Record<OrderStatus, string> = {
   rejected: 'Отклонён',
 }
 
-const deliveryLabels: Record<DeliveryType, string> = {
-  office: 'В офис',
-  pvz: 'ПВЗ / филиал',
-  pickup: 'Самовывоз',
-  courier: 'Курьер',
-}
+const deliveryLabels: Record<DeliveryType, string> = DELIVERY_TYPE_LABELS
 
 const statusOptions: OrderStatus[] = [
   'new',

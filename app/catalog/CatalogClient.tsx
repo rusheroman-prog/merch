@@ -2,6 +2,9 @@
 
 import AppNav from '@/components/AppNav'
 import ProductImage from '@/components/ProductImage'
+import SupportLink from '@/components/SupportLink'
+import { type ActiveDeliveryType } from '@/lib/supabase/types'
+import type { SupportContact } from '@/lib/support'
 import { decline, getProductLetter } from '@/lib/utils'
 import { useMemo, useState } from 'react'
 
@@ -33,17 +36,15 @@ export type CatalogProduct = {
 type CartItem = {
   product: CatalogProduct
   variant: CatalogVariant
-  qty: number
 }
 
 type SortMode = 'rec' | 'abc'
 
-type DeliveryType = 'office' | 'pvz' | 'pickup' | 'courier'
-
 type CheckoutDefaults = {
-  deliveryType: DeliveryType
+  deliveryType: ActiveDeliveryType
   deliveryAddress: string
   phone: string
+  country: string
 }
 
 type MerchAccess = {
@@ -53,13 +54,24 @@ type MerchAccess = {
   monthsWorked: number | null
 }
 
+type Limits = {
+  /** Unique products one employee may order in the current window. */
+  maxItems: number
+  /** Products already in the employee's active orders of this window. */
+  orderedProductIds: string[]
+  /** True when admins started a new order window (a distribution). */
+  hasWindow: boolean
+}
+
 type CatalogClientProps = {
   products: CatalogProduct[]
   userEmail: string | null
   userName: string | null
-  userDepartment: string | null
   isAdmin: boolean
   checkoutDefaults: CheckoutDefaults
+  limits: Limits
+  support: SupportContact | null
+  handoutPlace: string | null
   merchAccess: MerchAccess
 }
 
@@ -67,14 +79,16 @@ type CatalogClientProps = {
 /*  Constants                                                                   */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-const deliveryLabels: Record<DeliveryType, string> = {
-  office:  'В офис',
-  pvz:     'ПВЗ / филиал',
-  pickup:  'Самовывоз',
-  courier: 'Курьер',
-}
+const ALL = 'all'
+const NO_SIZE = 'one-size'
+const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL']
 
-const MAX_UNIQUE_PRODUCTS = 3
+type DeliveryOption = {
+  value: ActiveDeliveryType | 'pvz' | 'courier'
+  title: string
+  hint: string
+  disabled?: boolean
+}
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  CatalogClient                                                               */
@@ -84,49 +98,71 @@ export default function CatalogClient({
   products,
   userEmail,
   userName,
-  userDepartment,
   isAdmin,
   checkoutDefaults,
+  limits,
+  support,
+  handoutPlace,
   merchAccess,
 }: CatalogClientProps) {
   /* Cart */
   const [cart, setCart] = useState<CartItem[]>([])
 
   /* Checkout form */
-  const [deliveryType,    setDeliveryType]    = useState<DeliveryType>(checkoutDefaults.deliveryType)
+  const [deliveryType,    setDeliveryType]    = useState<ActiveDeliveryType>(checkoutDefaults.deliveryType)
   const [deliveryAddress, setDeliveryAddress] = useState(checkoutDefaults.deliveryAddress)
+  const [country,         setCountry]         = useState(checkoutDefaults.country || 'Узбекистан')
   const [phone,           setPhone]           = useState(checkoutDefaults.phone)
   const [comment,         setComment]         = useState('')
-  const [isRemote,        setIsRemote]        = useState(false)
-  const [country,         setCountry]         = useState('')
   const [isSubmitting,    setIsSubmitting]    = useState(false)
   const [checkoutError,   setCheckoutError]   = useState<string | null>(null)
   const [checkoutSuccess, setCheckoutSuccess] = useState<string | null>(null)
+  /* Products ordered in this session join the server-provided list. */
+  const [justOrderedIds,  setJustOrderedIds]  = useState<string[]>([])
 
   /* Filters */
-  const [selectedCategory, setSelectedCategory] = useState<string>('Все')
-  const [search,           setSearch]           = useState('')
-  const [sortMode,         setSortMode]         = useState<SortMode>('rec')
+  const [category, setCategory] = useState<string>(ALL)
+  const [size,     setSize]     = useState<string>(ALL)
+  const [search,   setSearch]   = useState('')
+  const [sortMode, setSortMode] = useState<SortMode>('rec')
 
   /* Derived */
-  const categories = useMemo(() => {
-    const unique = Array.from(
-      new Set(products.map(p => p.category_name).filter(Boolean) as string[])
-    )
-    return ['Все', ...unique]
+  const orderedIds = useMemo(
+    () => new Set([...limits.orderedProductIds, ...justOrderedIds]),
+    [limits.orderedProductIds, justOrderedIds]
+  )
+  const remaining = Math.max(0, limits.maxItems - orderedIds.size)
+
+  const categories = useMemo(
+    () => Array.from(new Set(products.map(p => p.category_name).filter(Boolean) as string[])),
+    [products]
+  )
+
+  const sizes = useMemo(() => {
+    const unique = new Set<string>()
+    let hasOneSize = false
+    for (const product of products) {
+      for (const variant of product.variants) {
+        if (variant.size?.trim()) unique.add(variant.size.trim())
+        else hasOneSize = true
+      }
+    }
+    const sorted = Array.from(unique).sort(compareSizes)
+    return { list: sorted, hasOneSize }
   }, [products])
 
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase()
     const filtered = products.filter(p => {
-      const catMatch = selectedCategory === 'Все' || p.category_name === selectedCategory
+      const catMatch  = category === ALL || p.category_name === category
+      const sizeMatch = size === ALL || p.variants.some(v => matchesSize(v, size))
       const srchMatch =
         q.length === 0 ||
         p.name.toLowerCase().includes(q) ||
         p.description?.toLowerCase().includes(q) ||
         p.category_name?.toLowerCase().includes(q) ||
         p.material?.toLowerCase().includes(q)
-      return catMatch && srchMatch
+      return catMatch && sizeMatch && srchMatch
     })
     if (sortMode === 'abc') {
       return [...filtered].sort((a, b) =>
@@ -134,12 +170,26 @@ export default function CatalogClient({
       )
     }
     return filtered
-  }, [products, selectedCategory, search, sortMode])
+  }, [products, category, size, search, sortMode])
 
-  const totalQty      = cart.length
-  const firstName     = getUserFirstName(userName, userEmail)
-  const initials      = getInitials(userName, userEmail)
-  const categoryCount = Math.max(0, categories.length - 1)
+  const hasActiveFilters = category !== ALL || size !== ALL || search.trim().length > 0
+  const firstName = getUserFirstName(userName, userEmail)
+  const initials  = getInitials(userName, userEmail)
+
+  const deliveryOptions: DeliveryOption[] = [
+    {
+      value: 'office',
+      title: 'Заберу в офисе',
+      hint:  handoutPlace ? `Выдача: ${handoutPlace}` : 'Место и время выдачи покажем в «Мои заказы»',
+    },
+    {
+      value: 'post',
+      title: 'Отправить почтой',
+      hint:  'Для сотрудников на удалёнке',
+    },
+    { value: 'pvz',     title: 'ПВЗ / филиал', hint: 'Скоро', disabled: true },
+    { value: 'courier', title: 'Курьер',       hint: 'Скоро', disabled: true },
+  ]
 
   /* Cart actions */
   function isProductInCart(productId: string) {
@@ -149,19 +199,9 @@ export default function CatalogClient({
   function addToCart(product: CatalogProduct, variant: CatalogVariant) {
     setCheckoutError(null)
     setCheckoutSuccess(null)
-    if (variant.available_qty <= 0) {
-      alert('Этот товар сейчас недоступен для заказа')
-      return
-    }
-    if (isProductInCart(product.id)) {
-      alert('Этот товар уже добавлен в корзину. Можно заказать только 1 единицу одного товара.')
-      return
-    }
-    if (cart.length >= MAX_UNIQUE_PRODUCTS) {
-      alert('Можно выбрать не больше трех уникальных позиций мерча.')
-      return
-    }
-    setCart(cur => [...cur, { product, variant, qty: 1 }])
+    if (variant.available_qty <= 0 || orderedIds.has(product.id)) return
+    if (isProductInCart(product.id) || cart.length >= remaining) return
+    setCart(cur => [...cur, { product, variant }])
   }
 
   function removeFromCart(variantId: string) {
@@ -175,8 +215,12 @@ export default function CatalogClient({
       setCheckoutError(getMerchAccessMessage(merchAccess))
       return
     }
-    if (cart.length > MAX_UNIQUE_PRODUCTS) {
-      setCheckoutError('Можно выбрать не больше трех уникальных позиций мерча.')
+    if (!phone.trim()) {
+      setCheckoutError('Укажите телефон — по нему с вами свяжутся, если что-то пойдёт не так.')
+      return
+    }
+    if (deliveryType === 'post' && !deliveryAddress.trim()) {
+      setCheckoutError('Укажите адрес, куда отправить посылку.')
       return
     }
 
@@ -191,31 +235,27 @@ export default function CatalogClient({
         body: JSON.stringify({
           items:            cart.map(item => ({ variant_id: item.variant.id, qty: 1 })),
           delivery_type:    deliveryType,
-          delivery_address: deliveryAddress,
+          delivery_address: deliveryType === 'post' ? deliveryAddress : null,
+          country:          deliveryType === 'post' ? country : null,
           phone,
           comment,
-          is_remote:        isRemote,
-          country:          isRemote ? country : null,
         }),
       })
 
       const result = await res.json()
 
       if (!res.ok) {
-        setCheckoutError(getCheckoutErrorMessage(result.error))
+        setCheckoutError(getCheckoutErrorMessage(result.error, limits.maxItems))
         return
       }
 
+      setJustOrderedIds(cur => [...cur, ...cart.map(item => item.product.id)])
       setCart([])
-      setDeliveryAddress(checkoutDefaults.deliveryAddress)
-      setPhone(checkoutDefaults.phone)
       setComment('')
-      setIsRemote(false)
-      setCountry('')
       setCheckoutSuccess(
         result.order?.order_number
-          ? `Заказ #${result.order.order_number} успешно создан`
-          : 'Заказ успешно создан'
+          ? `Заказ #${result.order.order_number} оформлен`
+          : 'Заказ оформлен'
       )
     } catch (err) {
       setCheckoutError(err instanceof Error ? err.message : 'Неизвестная ошибка')
@@ -241,13 +281,12 @@ export default function CatalogClient({
             <span className="brand-name">
               uzum <span className="brand-name-soft">мерч</span>
             </span>
-            <span className="brand-sub">внутренний портал</span>
           </a>
 
           <AppNav isAdmin={isAdmin} />
 
           <div className="head-side">
-            {totalQty > 0 && (
+            {cart.length > 0 && (
               <button
                 type="button"
                 className="head-cart"
@@ -257,17 +296,17 @@ export default function CatalogClient({
                 }
               >
                 Корзина
-                <span className="head-cart-badge">{totalQty}</span>
+                <span className="head-cart-badge">{cart.length}</span>
               </button>
             )}
 
-            <a href="/profile" className="head-user">
+            <div className="head-user head-user-static">
               <span className="head-user-avatar">{initials}</span>
               <span className="head-user-info">
                 <span className="head-user-name">{firstName}</span>
                 <span className="head-user-team">{userEmail}</span>
               </span>
-            </a>
+            </div>
 
             <LogoutButton />
           </div>
@@ -276,86 +315,17 @@ export default function CatalogClient({
       </header>
 
       {/* ── CATALOG BODY ────────────────────────────────────────────────── */}
-      <div className="catalog">
+      <div className="catalog catalog-compact">
 
-        {/* Hero */}
-        <section className="hero">
-          <div className="hero-greeting">
-            <span className="kicker">Корпоративный магазин · uzum</span>
-            <h1 className="display">
-              Привет, {firstName}.<br />
-              <em>Что-нибудь</em> подберём?
-            </h1>
-            <p className="lead">
-              Здесь корпоративный мерч, канцелярия и подарочные наборы.
-              Бесплатно — нужно только оставить заявку.{' '}
-              Можно выбрать <b>до трех уникальных позиций</b>; разные размеры одного товара считаются одной позицией.
-            </p>
-            {!merchAccess.isAllowed && (
-              <div className="form-error form-error-hero">
-                {getMerchAccessMessage(merchAccess)}
-              </div>
+        {!merchAccess.isAllowed && (
+          <div className="catalog-notice">
+            <b>Оформление недоступно.</b> {getMerchAccessMessage(merchAccess)}
+            {support && (
+              <> Вопросы: <SupportLink contact={support} className="support-link" /></>
             )}
-            <div className="hero-actions">
-              <button
-                type="button"
-                className="btn btn-accent btn-lg"
-                onClick={() =>
-                  document.getElementById('catalog-grid')
-                    ?.scrollIntoView({ behavior: 'smooth' })
-                }
-              >
-                Посмотреть каталог ↓
-              </button>
-              <a href="/orders" className="btn btn-ghost btn-lg">
-                Мои заказы →
-              </a>
-            </div>
           </div>
+        )}
 
-          <aside className="hero-quota">
-            <span className="kicker">Профиль</span>
-            <div className="profile-mini">
-              <div className="profile-mini-row">
-                <span>ФИО</span>
-                <b>{userName || '—'}</b>
-              </div>
-              <div className="profile-mini-row">
-                <span>Email</span>
-                <b>{userEmail || '—'}</b>
-              </div>
-              {userDepartment && (
-                <div className="profile-mini-row">
-                  <span>Отдел</span>
-                  <b>{userDepartment}</b>
-                </div>
-              )}
-              <div className="profile-mini-row">
-                <span>Город / офис</span>
-                <b>{deliveryAddress || '—'}</b>
-              </div>
-            </div>
-            <p className="quota-hint">
-              Доставка по умолчанию — в офис. Изменить можно при оформлении заказа.
-            </p>
-          </aside>
-        </section>
-
-        {/* Category nav */}
-        <nav className="cat-nav" aria-label="Категории">
-          {categories.map(cat => (
-            <button
-              key={cat}
-              type="button"
-              className={`cat-pill${selectedCategory === cat ? ' is-on' : ''}`}
-              onClick={() => setSelectedCategory(cat)}
-            >
-              {cat}
-            </button>
-          ))}
-        </nav>
-
-        {/* Catalog body: filters + grid */}
         <div className="catalog-body">
 
           {/* Filters sidebar */}
@@ -371,29 +341,87 @@ export default function CatalogClient({
               />
             </div>
 
-            <div className="filters-note">
-              <span className="kicker">Правила</span>
-              <p>Один товар = одна штука. Нельзя заказать несколько единиц или несколько вариантов одного товара.</p>
-              <p>Максимум — 3 уникальные позиции. Мерч доступен сотрудникам со стажем больше 3 месяцев.</p>
+            <div className="filters-block">
+              <label className="filters-label" htmlFor="catalog-category">Категория</label>
+              <select
+                id="catalog-category"
+                className="filters-select"
+                value={category}
+                onChange={e => setCategory(e.target.value)}
+              >
+                <option value={ALL}>Все категории</option>
+                {categories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
             </div>
 
-            <div className="filters-note">
-              <span className="kicker">Каталог</span>
-              <p>
-                Сейчас доступно {products.length}{' '}
-                {decline(products.length, ['товар', 'товара', 'товаров'])} в{' '}
-                {categoryCount}{' '}
-                {decline(categoryCount, ['категории', 'категориях', 'категориях'])}.
-              </p>
+            <div className="filters-block">
+              <label className="filters-label" htmlFor="catalog-size">Размер</label>
+              <select
+                id="catalog-size"
+                className="filters-select"
+                value={size}
+                onChange={e => setSize(e.target.value)}
+              >
+                <option value={ALL}>Любой размер</option>
+                {sizes.list.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+                {sizes.hasOneSize && <option value={NO_SIZE}>Без размера</option>}
+              </select>
             </div>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className="filters-reset"
+                onClick={() => { setCategory(ALL); setSize(ALL); setSearch('') }}
+              >
+                Сбросить фильтры
+              </button>
+            )}
+
+            <div className="rules-card">
+              <span className="kicker">Правила</span>
+              <ol className="rules-list">
+                <li>
+                  Можно выбрать до {limits.maxItems}{' '}
+                  {decline(limits.maxItems, ['уникальной позиции', 'уникальных позиций', 'уникальных позиций'])}
+                  {limits.hasWindow ? ' в текущей раздаче' : ''}
+                </li>
+                <li>1 товар = 1 штука</li>
+                <li>Разные размеры одного товара — одна позиция</li>
+                <li>Получение — в офисе, удалёнщикам отправим почтой</li>
+              </ol>
+            </div>
+
+            {support && (
+              <div className="filters-help">
+                Вопросы по мерчу: <SupportLink contact={support} className="support-link" />
+              </div>
+            )}
           </aside>
 
           {/* Grid area */}
           <main className="grid-wrap">
             <div className="grid-head">
-              <div className="grid-count">
-                <span className="num">{filteredProducts.length}</span>{' '}
-                {decline(filteredProducts.length, ['товар', 'товара', 'товаров'])}
+              <div className="grid-picked">
+                {remaining > 0 || cart.length > 0 ? (
+                  <>
+                    Выбрано <span className="num">{cart.length}</span> из {remaining}
+                    {orderedIds.size > 0 && (
+                      <span className="grid-picked-note">
+                        {' '}· ещё {orderedIds.size} уже в ваших заказах
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="grid-picked-note">
+                    Лимит исчерпан: вы уже заказали {orderedIds.size}{' '}
+                    {decline(orderedIds.size, ['позицию', 'позиции', 'позиций'])}
+                  </span>
+                )}
               </div>
               <div className="grid-sort">
                 <span className="kicker">Сортировка</span>
@@ -408,21 +436,34 @@ export default function CatalogClient({
               </div>
             </div>
 
+            <p className="rules-compact">
+              Правила: до {limits.maxItems}{' '}
+              {decline(limits.maxItems, ['позиции', 'позиций', 'позиций'])}, 1 товар = 1 штука,
+              разные размеры одного товара — одна позиция. Получение в офисе или почтой.
+            </p>
+
             <div id="catalog-grid" className="grid-layout">
               <div className="grid grid-cols">
                 {filteredProducts.length === 0 ? (
                   <div className="empty">
                     <div className="empty-mark">∅</div>
                     <h3>Товары не найдены</h3>
-                    <p>Сбросьте поиск или выберите другую категорию.</p>
+                    <p>Сбросьте фильтры или измените поиск.</p>
                   </div>
                 ) : (
                   filteredProducts.map(product => (
                     <ProductCard
-                      key={product.id}
+                      // Remount on size filter change so the card preselects that size.
+                      key={`${product.id}:${size}`}
                       product={product}
-                      isInCart={isProductInCart(product.id)}
-                      isBlocked={!merchAccess.isAllowed || cart.length >= MAX_UNIQUE_PRODUCTS}
+                      preferredSize={size}
+                      state={
+                        isProductInCart(product.id) ? 'in-cart'
+                        : orderedIds.has(product.id) ? 'ordered'
+                        : !merchAccess.isAllowed ? 'blocked'
+                        : cart.length >= remaining ? 'limit'
+                        : 'available'
+                      }
                       onAddToCart={addToCart}
                     />
                   ))
@@ -431,13 +472,13 @@ export default function CatalogClient({
 
               <CartAside
                 cart={cart}
-                totalQty={totalQty}
+                remaining={remaining}
+                deliveryOptions={deliveryOptions}
                 deliveryType={deliveryType}
                 deliveryAddress={deliveryAddress}
+                country={country}
                 phone={phone}
                 comment={comment}
-                isRemote={isRemote}
-                country={country}
                 isSubmitting={isSubmitting}
                 checkoutError={checkoutError}
                 checkoutSuccess={checkoutSuccess}
@@ -445,10 +486,9 @@ export default function CatalogClient({
                 onRemove={removeFromCart}
                 onDeliveryTypeChange={setDeliveryType}
                 onDeliveryAddressChange={setDeliveryAddress}
+                onCountryChange={setCountry}
                 onPhoneChange={setPhone}
                 onCommentChange={setComment}
-                onRemoteChange={setIsRemote}
-                onCountryChange={setCountry}
                 onCheckout={handleCheckout}
               />
             </div>
@@ -464,19 +504,21 @@ export default function CatalogClient({
 /*  ProductCard                                                                 */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
+type CardState = 'available' | 'in-cart' | 'ordered' | 'limit' | 'blocked'
+
 function ProductCard({
   product,
-  isInCart,
-  isBlocked,
+  preferredSize,
+  state,
   onAddToCart,
 }: {
   product: CatalogProduct
-  isInCart: boolean
-  isBlocked: boolean
+  preferredSize: string
+  state: CardState
   onAddToCart: (product: CatalogProduct, variant: CatalogVariant) => void
 }) {
   const [selectedVariantId, setSelectedVariantId] = useState(
-    product.variants[0]?.id ?? ''
+    () => (product.variants.find(v => matchesSize(v, preferredSize)) ?? product.variants[0])?.id ?? ''
   )
 
   const selectedVariant =
@@ -490,10 +532,15 @@ function ProductCard({
   const stockClass  = totalAvail > 4 ? 'card-stock-ok' : totalAvail > 0 ? 'card-stock-low' : 'card-stock-out'
   const stockText   = totalAvail > 0 ? `${totalAvail} шт.` : 'Нет в наличии'
 
-  const canAdd = !isBlocked && !isInCart && !!selectedVariant && selectedVariant.available_qty > 0
+  const canAdd = state === 'available' && !!selectedVariant && selectedVariant.available_qty > 0
+  const buttonText =
+    state === 'in-cart' ? 'Уже в корзине'
+    : state === 'ordered' ? 'Уже заказан'
+    : state === 'limit' ? 'Лимит выбран'
+    : 'Добавить'
 
   return (
-    <article className="card">
+    <article className={`card${state === 'ordered' ? ' card-ordered' : ''}`}>
       <div className="card-art">
         {imageUrl ? (
           <ProductImage
@@ -506,7 +553,8 @@ function ProductCard({
             <div className="card-art-letter">{getProductLetter(product.name)}</div>
           </div>
         )}
-        {isInCart && <span className="card-badge card-badge-cart">В корзине</span>}
+        {state === 'in-cart' && <span className="card-badge card-badge-cart">В корзине</span>}
+        {state === 'ordered' && <span className="card-badge card-badge-ordered">Уже заказан</span>}
       </div>
 
       <div className="card-body">
@@ -525,9 +573,9 @@ function ProductCard({
           {hasMultipleVariants ? 'Вариант' : 'Размер'}
           <select
             className="variant-select"
-            value={selectedVariantId}
+            value={selectedVariant?.id ?? ''}
             onChange={e => setSelectedVariantId(e.target.value)}
-            disabled={isInCart}
+            disabled={state === 'in-cart' || state === 'ordered'}
           >
             {product.variants.map(v => (
               <option key={v.id} value={v.id}>{formatVariant(v)}</option>
@@ -537,11 +585,11 @@ function ProductCard({
 
         <button
           type="button"
-          className={`card-btn${isInCart ? ' in-cart' : ''}`}
+          className={`card-btn${state === 'in-cart' || state === 'ordered' ? ' in-cart' : ''}`}
           disabled={!canAdd}
           onClick={() => selectedVariant && onAddToCart(product, selectedVariant)}
         >
-          {isInCart ? 'Уже в корзине' : 'Добавить'}
+          {buttonText}
         </button>
       </div>
     </article>
@@ -554,13 +602,13 @@ function ProductCard({
 
 function CartAside({
   cart,
-  totalQty,
+  remaining,
+  deliveryOptions,
   deliveryType,
   deliveryAddress,
+  country,
   phone,
   comment,
-  isRemote,
-  country,
   isSubmitting,
   checkoutError,
   checkoutSuccess,
@@ -568,56 +616,57 @@ function CartAside({
   onRemove,
   onDeliveryTypeChange,
   onDeliveryAddressChange,
+  onCountryChange,
   onPhoneChange,
   onCommentChange,
-  onRemoteChange,
-  onCountryChange,
   onCheckout,
 }: {
   cart: CartItem[]
-  totalQty: number
-  deliveryType: DeliveryType
+  remaining: number
+  deliveryOptions: DeliveryOption[]
+  deliveryType: ActiveDeliveryType
   deliveryAddress: string
+  country: string
   phone: string
   comment: string
-  isRemote: boolean
-  country: string
   isSubmitting: boolean
   checkoutError: string | null
   checkoutSuccess: string | null
   merchAccess: MerchAccess
   onRemove: (variantId: string) => void
-  onDeliveryTypeChange: (value: DeliveryType) => void
+  onDeliveryTypeChange: (value: ActiveDeliveryType) => void
   onDeliveryAddressChange: (value: string) => void
+  onCountryChange: (value: string) => void
   onPhoneChange: (value: string) => void
   onCommentChange: (value: string) => void
-  onRemoteChange: (value: boolean) => void
-  onCountryChange: (value: string) => void
   onCheckout: () => void
 }) {
+  const limitLabel = `${cart.length} / ${remaining} ${decline(remaining, ['позиция', 'позиции', 'позиций'])}`
+
   return (
     <aside className="cart-aside" id="cart-aside">
       <div className="cart-header">
-        <div>
-          <p className="aside-title">Корзина</p>
-          <p className="cart-subtitle">
-            {cart.length > 0
-              ? `${cart.length} ${decline(cart.length, ['товар', 'товара', 'товаров'])}`
-              : 'Пока пусто'}
-          </p>
-        </div>
-        <span className="cart-counter">{totalQty}</span>
+        <p className="aside-title">Корзина</p>
+        <span className="cart-quota-pill">{limitLabel}</span>
       </div>
 
       {checkoutSuccess && <CheckoutSuccessCard message={checkoutSuccess} />}
 
       {cart.length === 0 ? (
-        <div className="cart-empty">
-          <div className="cart-empty-mark">+</div>
-          <p className="cart-empty-text">
-            Добавьте товары из каталога, чтобы оформить заявку.
+        <>
+          <div className="cart-empty">
+            <div className="cart-empty-mark">+</div>
+            <p className="cart-empty-title">Пока пусто</p>
+            <p className="cart-empty-text">
+              {remaining > 0
+                ? `Добавьте от 1 до ${remaining} ${decline(remaining, ['товара', 'товаров', 'товаров'])} из каталога.`
+                : 'Вы выбрали весь доступный лимит. Статусы заказов — в «Мои заказы».'}
+            </p>
+          </div>
+          <p className="cart-footnote">
+            Контакты и способ получения вы укажете при оформлении.
           </p>
-        </div>
+        </>
       ) : (
         <>
           <div className="cart-lines">
@@ -641,38 +690,57 @@ function CartAside({
             ))}
           </div>
 
-          <div className="cart-summary">
-            <div className="sum-row"><span>Товаров</span><b>{cart.length}</b></div>
-            <div className="sum-row"><span>Лимит</span><b>{cart.length}/{MAX_UNIQUE_PRODUCTS}</b></div>
-            <div className="sum-row"><span>Количество</span><b>{cart.length} шт.</b></div>
-            <div className="sum-row"><span>Получение</span><b>{deliveryLabels[deliveryType]}</b></div>
-          </div>
-
           <div className="cart-form">
-            <label className="form-label">
-              Способ получения
-              <select
-                className="form-select"
-                value={deliveryType}
-                onChange={e => onDeliveryTypeChange(e.target.value as DeliveryType)}
-              >
-                <option value="office">В офис</option>
-                <option value="pvz">ПВЗ / филиал</option>
-                <option value="pickup">Самовывоз</option>
-                <option value="courier">Курьер</option>
-              </select>
-            </label>
+            <fieldset className="delivery-options">
+              <legend className="form-label">Способ получения</legend>
+              {deliveryOptions.map(option => {
+                const isActive = option.value === deliveryType
+                return (
+                  <label
+                    key={option.value}
+                    className={`delivery-option${isActive ? ' is-on' : ''}${option.disabled ? ' is-disabled' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="delivery"
+                      value={option.value}
+                      checked={isActive}
+                      disabled={option.disabled}
+                      onChange={() => onDeliveryTypeChange(option.value as ActiveDeliveryType)}
+                    />
+                    <span className="delivery-option-body">
+                      <b>{option.title}</b>
+                      <span>{option.hint}</span>
+                    </span>
+                  </label>
+                )
+              })}
+            </fieldset>
 
-            <label className="form-label">
-              Адрес / офис / точка получения
-              <input
-                type="text"
-                className="form-input"
-                value={deliveryAddress}
-                onChange={e => onDeliveryAddressChange(e.target.value)}
-                placeholder="Например: Ташкент, офис Сергели"
-              />
-            </label>
+            {deliveryType === 'post' && (
+              <>
+                <label className="form-label">
+                  Страна
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={country}
+                    onChange={e => onCountryChange(e.target.value)}
+                    placeholder="Например: Узбекистан"
+                  />
+                </label>
+
+                <label className="form-label">
+                  Адрес доставки
+                  <textarea
+                    className="form-textarea"
+                    value={deliveryAddress}
+                    onChange={e => onDeliveryAddressChange(e.target.value)}
+                    placeholder="Город, улица, дом, квартира, индекс"
+                  />
+                </label>
+              </>
+            )}
 
             <label className="form-label">
               Телефон
@@ -681,31 +749,10 @@ function CartAside({
                 className="form-input"
                 value={phone}
                 onChange={e => onPhoneChange(e.target.value)}
-                placeholder="+998..."
+                placeholder="+998 90 000-00-00"
+                autoComplete="tel"
               />
             </label>
-
-            <label className="form-check">
-              <input
-                type="checkbox"
-                checked={isRemote}
-                onChange={e => onRemoteChange(e.target.checked)}
-              />
-              Я удаленщик (получаю мерч не в офисе)
-            </label>
-
-            {isRemote && (
-              <label className="form-label">
-                Страна
-                <input
-                  type="text"
-                  className="form-input"
-                  value={country}
-                  onChange={e => onCountryChange(e.target.value)}
-                  placeholder="Например: Казахстан"
-                />
-              </label>
-            )}
 
             <label className="form-label">
               Комментарий
@@ -713,15 +760,12 @@ function CartAside({
                 className="form-textarea"
                 value={comment}
                 onChange={e => onCommentChange(e.target.value)}
-                placeholder="Комментарий к заказу"
+                placeholder="Если есть пожелания к заказу"
               />
             </label>
 
             {checkoutError && (
               <div className="form-error">{checkoutError}</div>
-            )}
-            {!merchAccess.isAllowed && (
-              <div className="form-error">{getMerchAccessMessage(merchAccess)}</div>
             )}
 
             <button
@@ -730,7 +774,7 @@ function CartAside({
               disabled={isSubmitting || !merchAccess.isAllowed}
               onClick={onCheckout}
             >
-              {isSubmitting ? 'Оформляем…' : 'Оформить заказ'}
+              {isSubmitting ? 'Оформляем…' : 'Оформить заказ →'}
             </button>
           </div>
         </>
@@ -751,11 +795,10 @@ function CheckoutSuccessCard({ message }: { message: string }) {
         <div className="confirm-kicker">Заявка оформлена</div>
         <h3 className="confirm-title">{message}</h3>
         <p className="confirm-text">
-          Мы сохранили вашу заявку. Статус обработки можно отслеживать в разделе «Мои заказы».
+          Статус и QR-код для получения — в разделе «Мои заказы».
         </p>
         <div className="confirm-actions">
-          <a href="/orders" className="confirm-primary-link">Перейти в мои заказы</a>
-          <a href="#catalog-grid" className="confirm-ghost-link">Продолжить выбор</a>
+          <a href="/orders" className="confirm-primary-link">Мои заказы</a>
         </div>
       </div>
     </div>
@@ -793,6 +836,21 @@ function LogoutButton() {
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  Helper functions                                                            */
 /* ─────────────────────────────────────────────────────────────────────────── */
+
+function matchesSize(variant: CatalogVariant, size: string) {
+  if (size === ALL) return true
+  const variantSize = variant.size?.trim()
+  return size === NO_SIZE ? !variantSize : variantSize === size
+}
+
+function compareSizes(a: string, b: string) {
+  const ia = SIZE_ORDER.indexOf(a.toUpperCase())
+  const ib = SIZE_ORDER.indexOf(b.toUpperCase())
+  if (ia >= 0 && ib >= 0) return ia - ib
+  if (ia >= 0) return -1
+  if (ib >= 0) return 1
+  return a.localeCompare(b, 'ru', { numeric: true })
+}
 
 function formatVariant(variant: CatalogVariant) {
   const size  = variant.size  || 'ONE SIZE'
@@ -834,21 +892,27 @@ function getInitials(fullName: string | null, email: string | null): string {
   return `${a}${b}`.toUpperCase()
 }
 
-function getCheckoutErrorMessage(error: string): string {
+function getCheckoutErrorMessage(error: string, maxItems: number): string {
   if (error.includes('product_already_ordered'))
-    return 'Один из выбранных товаров уже был заказан ранее. Повторный заказ недоступен.'
+    return 'Один из товаров вы уже заказывали. Повторно этот товар заказать нельзя.'
   if (error.includes('one_unit_per_product_only'))
     return 'Можно заказать только 1 единицу одного товара.'
   if (error.includes('one_variant_per_product_only'))
     return 'Нельзя выбрать несколько вариантов одного товара.'
   if (error.includes('max_unique_products_exceeded'))
-    return 'Можно выбрать не больше трех уникальных позиций мерча.'
+    return `Лимит — ${maxItems} ${decline(maxItems, ['позиция', 'позиции', 'позиций'])} на сотрудника, включая уже оформленные заказы.`
+  if (error.includes('delivery_type_not_available'))
+    return 'Этот способ получения пока недоступен. Выберите офис или почту.'
+  if (error.includes('delivery_address_required'))
+    return 'Укажите адрес, куда отправить посылку.'
+  if (error.includes('phone_required'))
+    return 'Укажите телефон для связи.'
   if (error.includes('employee_tenure_too_short'))
     return 'Мерч доступен сотрудникам, отработавшим больше 3 месяцев.'
   if (error.includes('employee_not_in_directory') || error.includes('employee_inactive'))
     return 'Ваш доступ к мерчу не найден в HR-реестре. Обратитесь к HR или администратору.'
   if (error.includes('product_is_not_available'))
-    return 'Один из выбранных товаров сейчас недоступен для заказа.'
+    return 'Один из выбранных товаров закончился. Обновите страницу и выберите другой.'
   return error || 'Не удалось оформить заказ'
 }
 
@@ -862,7 +926,7 @@ function getMerchAccessMessage(access: MerchAccess) {
   }
 
   if (access.reason === 'employee_inactive') {
-    return 'Ваш доступ к мерчу отключен. Обратитесь к HR или администратору.'
+    return 'Ваш доступ к мерчу отключён. Обратитесь к HR или администратору.'
   }
 
   return 'Сейчас оформление мерча недоступно. Обратитесь к HR или администратору.'

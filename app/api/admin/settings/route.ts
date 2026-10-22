@@ -1,10 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { normalizeSupportUrl } from '@/lib/support'
 
 type SettingsPayload = {
   handout_deadline?: string | null
   handout_place?: string | null
   handout_note?: string | null
+  order_window_start?: string | null
+  max_items_per_employee?: number | string | null
+  support_label?: string | null
+  support_url?: string | null
 }
 
 export async function POST(request: NextRequest) {
@@ -39,13 +44,44 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json()) as SettingsPayload
 
+    const maxItems = Number(body.max_items_per_employee ?? 3)
+    if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 20) {
+      return NextResponse.json(
+        { error: 'Лимит позиций — целое число от 1 до 20' },
+        { status: 400 }
+      )
+    }
+
+    const supportUrlInput = cleanText(body.support_url)
+    const supportUrl = normalizeSupportUrl(supportUrlInput)
+    if (supportUrlInput && !supportUrl) {
+      return NextResponse.json(
+        { error: 'Контакт поддержки: укажите ссылку https://…, @telegram, email или телефон' },
+        { status: 400 }
+      )
+    }
+
+    const windowStart = cleanDate(body.order_window_start)
+    if (windowStart === undefined) {
+      return NextResponse.json({ error: 'Некорректная дата начала раздачи' }, { status: 400 })
+    }
+
+    const handoutDeadline = cleanDate(body.handout_deadline)
+    if (handoutDeadline === undefined) {
+      return NextResponse.json({ error: 'Некорректная дата раздачи' }, { status: 400 })
+    }
+
     const { error } = await supabase
       .from('merch_settings')
       .update({
-        handout_deadline: cleanText(body.handout_deadline),
-        handout_place:    cleanText(body.handout_place),
-        handout_note:     cleanText(body.handout_note),
-        updated_at:       new Date().toISOString(),
+        handout_deadline:       handoutDeadline,
+        handout_place:          cleanText(body.handout_place),
+        handout_note:           cleanText(body.handout_note),
+        order_window_start:     windowStart,
+        max_items_per_employee: maxItems,
+        support_label:          cleanText(body.support_label),
+        support_url:            supportUrl,
+        updated_at:             new Date().toISOString(),
       })
       .eq('id', 1)
 
@@ -64,4 +100,12 @@ function cleanText(value: unknown) {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+/** null for "not set", undefined for an unparseable value. */
+function cleanDate(value: unknown): string | null | undefined {
+  const text = cleanText(value)
+  if (!text) return null
+  const date = new Date(text)
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
 }
