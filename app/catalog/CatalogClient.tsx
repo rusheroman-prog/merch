@@ -38,12 +38,19 @@ type CartItem = {
 
 type SortMode = 'rec' | 'abc'
 
-type DeliveryType = 'office' | 'pvz' | 'pickup' | 'courier'
+/** Способы, которые можно выбрать в корзине. ПВЗ и курьер показаны неактивными. */
+type CheckoutDeliveryType = 'office' | 'post'
 
 type CheckoutDefaults = {
-  deliveryType: DeliveryType
+  deliveryType: CheckoutDeliveryType
   deliveryAddress: string
   phone: string
+  country: string
+}
+
+type HandoutInfo = {
+  place: string | null
+  deadline: string | null
 }
 
 type MerchAccess = {
@@ -57,9 +64,9 @@ type CatalogClientProps = {
   products: CatalogProduct[]
   userEmail: string | null
   userName: string | null
-  userDepartment: string | null
   isAdmin: boolean
   checkoutDefaults: CheckoutDefaults
+  handout: HandoutInfo
   merchAccess: MerchAccess
 }
 
@@ -67,14 +74,31 @@ type CatalogClientProps = {
 /*  Constants                                                                   */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-const deliveryLabels: Record<DeliveryType, string> = {
-  office:  'В офис',
-  pvz:     'ПВЗ / филиал',
-  pickup:  'Самовывоз',
-  courier: 'Курьер',
-}
-
 const MAX_UNIQUE_PRODUCTS = 3
+
+const ALL = 'all'
+const ONE_SIZE = 'ONE SIZE'
+const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL']
+
+const DELIVERY_OPTIONS: Array<{
+  value: CheckoutDeliveryType | 'pvz' | 'courier'
+  title: string
+  hint: string
+  disabled?: boolean
+}> = [
+  { value: 'office',  title: 'В офисе',     hint: 'Заберёте по коду заказа' },
+  { value: 'post',    title: 'Почтой BTS',  hint: 'Для удалёнщиков' },
+  { value: 'pvz',     title: 'ПВЗ',         hint: 'Скоро',  disabled: true },
+  { value: 'courier', title: 'Курьер',      hint: 'Скоро',  disabled: true },
+]
+
+const RULES = [
+  `До ${MAX_UNIQUE_PRODUCTS} уникальных позиций в заказе`,
+  'Один товар — одна штука',
+  'Разные размеры одного товара считаются одной позицией',
+  'Получение — в офисе или почтой для удалёнщиков',
+  'Доступно сотрудникам со стажем от 3 месяцев',
+]
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  CatalogClient                                                               */
@@ -84,49 +108,57 @@ export default function CatalogClient({
   products,
   userEmail,
   userName,
-  userDepartment,
   isAdmin,
   checkoutDefaults,
+  handout,
   merchAccess,
 }: CatalogClientProps) {
   /* Cart */
   const [cart, setCart] = useState<CartItem[]>([])
 
   /* Checkout form */
-  const [deliveryType,    setDeliveryType]    = useState<DeliveryType>(checkoutDefaults.deliveryType)
+  const [deliveryType,    setDeliveryType]    = useState<CheckoutDeliveryType>(checkoutDefaults.deliveryType)
   const [deliveryAddress, setDeliveryAddress] = useState(checkoutDefaults.deliveryAddress)
   const [phone,           setPhone]           = useState(checkoutDefaults.phone)
+  const [country,         setCountry]         = useState(checkoutDefaults.country)
   const [comment,         setComment]         = useState('')
-  const [isRemote,        setIsRemote]        = useState(false)
-  const [country,         setCountry]         = useState('')
   const [isSubmitting,    setIsSubmitting]    = useState(false)
   const [checkoutError,   setCheckoutError]   = useState<string | null>(null)
   const [checkoutSuccess, setCheckoutSuccess] = useState<string | null>(null)
 
   /* Filters */
-  const [selectedCategory, setSelectedCategory] = useState<string>('Все')
-  const [search,           setSearch]           = useState('')
-  const [sortMode,         setSortMode]         = useState<SortMode>('rec')
+  const [category, setCategory] = useState<string>(ALL)
+  const [size,     setSize]     = useState<string>(ALL)
+  const [search,   setSearch]   = useState('')
+  const [sortMode, setSortMode] = useState<SortMode>('rec')
 
   /* Derived */
-  const categories = useMemo(() => {
-    const unique = Array.from(
-      new Set(products.map(p => p.category_name).filter(Boolean) as string[])
-    )
-    return ['Все', ...unique]
-  }, [products])
+  const categories = useMemo(
+    () =>
+      Array.from(new Set(products.map(p => p.category_name).filter(Boolean) as string[]))
+        .sort((a, b) => a.localeCompare(b, 'ru')),
+    [products]
+  )
+
+  const sizes = useMemo(
+    () =>
+      Array.from(new Set(products.flatMap(p => p.variants.map(getSizeKey))))
+        .sort(compareSizes),
+    [products]
+  )
 
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase()
     const filtered = products.filter(p => {
-      const catMatch = selectedCategory === 'Все' || p.category_name === selectedCategory
+      const catMatch  = category === ALL || p.category_name === category
+      const sizeMatch = size === ALL || p.variants.some(v => getSizeKey(v) === size)
       const srchMatch =
         q.length === 0 ||
         p.name.toLowerCase().includes(q) ||
         p.description?.toLowerCase().includes(q) ||
         p.category_name?.toLowerCase().includes(q) ||
         p.material?.toLowerCase().includes(q)
-      return catMatch && srchMatch
+      return catMatch && sizeMatch && srchMatch
     })
     if (sortMode === 'abc') {
       return [...filtered].sort((a, b) =>
@@ -134,12 +166,17 @@ export default function CatalogClient({
       )
     }
     return filtered
-  }, [products, selectedCategory, search, sortMode])
+  }, [products, category, size, search, sortMode])
 
-  const totalQty      = cart.length
-  const firstName     = getUserFirstName(userName, userEmail)
-  const initials      = getInitials(userName, userEmail)
-  const categoryCount = Math.max(0, categories.length - 1)
+  const hasFilters = category !== ALL || size !== ALL || search.trim().length > 0
+  const firstName  = getUserFirstName(userName, userEmail)
+  const initials   = getInitials(userName, userEmail)
+
+  function resetFilters() {
+    setCategory(ALL)
+    setSize(ALL)
+    setSearch('')
+  }
 
   /* Cart actions */
   function isProductInCart(productId: string) {
@@ -150,15 +187,15 @@ export default function CatalogClient({
     setCheckoutError(null)
     setCheckoutSuccess(null)
     if (variant.available_qty <= 0) {
-      alert('Этот товар сейчас недоступен для заказа')
+      setCheckoutError('Этот товар сейчас недоступен для заказа.')
       return
     }
     if (isProductInCart(product.id)) {
-      alert('Этот товар уже добавлен в корзину. Можно заказать только 1 единицу одного товара.')
+      setCheckoutError('Этот товар уже в корзине. Можно заказать только 1 единицу одного товара.')
       return
     }
     if (cart.length >= MAX_UNIQUE_PRODUCTS) {
-      alert('Можно выбрать не больше трех уникальных позиций мерча.')
+      setCheckoutError(`Можно выбрать не больше ${MAX_UNIQUE_PRODUCTS} уникальных позиций.`)
       return
     }
     setCart(cur => [...cur, { product, variant, qty: 1 }])
@@ -176,7 +213,11 @@ export default function CatalogClient({
       return
     }
     if (cart.length > MAX_UNIQUE_PRODUCTS) {
-      setCheckoutError('Можно выбрать не больше трех уникальных позиций мерча.')
+      setCheckoutError(`Можно выбрать не больше ${MAX_UNIQUE_PRODUCTS} уникальных позиций.`)
+      return
+    }
+    if (deliveryType === 'post' && (!country.trim() || !deliveryAddress.trim() || !phone.trim())) {
+      setCheckoutError('Для отправки почтой укажите страну, адрес и телефон.')
       return
     }
 
@@ -191,11 +232,10 @@ export default function CatalogClient({
         body: JSON.stringify({
           items:            cart.map(item => ({ variant_id: item.variant.id, qty: 1 })),
           delivery_type:    deliveryType,
-          delivery_address: deliveryAddress,
+          delivery_address: deliveryType === 'post' ? deliveryAddress : null,
           phone,
           comment,
-          is_remote:        isRemote,
-          country:          isRemote ? country : null,
+          country:          deliveryType === 'post' ? country : null,
         }),
       })
 
@@ -206,16 +246,13 @@ export default function CatalogClient({
         return
       }
 
+      // Телефон и адрес не сбрасываем — при следующем заказе они подставятся снова.
       setCart([])
-      setDeliveryAddress(checkoutDefaults.deliveryAddress)
-      setPhone(checkoutDefaults.phone)
       setComment('')
-      setIsRemote(false)
-      setCountry('')
       setCheckoutSuccess(
         result.order?.order_number
-          ? `Заказ #${result.order.order_number} успешно создан`
-          : 'Заказ успешно создан'
+          ? `Заказ #${result.order.order_number} оформлен`
+          : 'Заказ оформлен'
       )
     } catch (err) {
       setCheckoutError(err instanceof Error ? err.message : 'Неизвестная ошибка')
@@ -241,13 +278,12 @@ export default function CatalogClient({
             <span className="brand-name">
               uzum <span className="brand-name-soft">мерч</span>
             </span>
-            <span className="brand-sub">внутренний портал</span>
           </a>
 
           <AppNav isAdmin={isAdmin} />
 
           <div className="head-side">
-            {totalQty > 0 && (
+            {cart.length > 0 && (
               <button
                 type="button"
                 className="head-cart"
@@ -257,17 +293,17 @@ export default function CatalogClient({
                 }
               >
                 Корзина
-                <span className="head-cart-badge">{totalQty}</span>
+                <span className="head-cart-badge">{cart.length}</span>
               </button>
             )}
 
-            <a href="/profile" className="head-user">
+            <div className="head-user" title={userEmail ?? undefined}>
               <span className="head-user-avatar">{initials}</span>
               <span className="head-user-info">
                 <span className="head-user-name">{firstName}</span>
                 <span className="head-user-team">{userEmail}</span>
               </span>
-            </a>
+            </div>
 
             <LogoutButton />
           </div>
@@ -276,126 +312,88 @@ export default function CatalogClient({
       </header>
 
       {/* ── CATALOG BODY ────────────────────────────────────────────────── */}
-      <div className="catalog">
-
-        {/* Hero */}
-        <section className="hero">
-          <div className="hero-greeting">
-            <span className="kicker">Корпоративный магазин · uzum</span>
-            <h1 className="display">
-              Привет, {firstName}.<br />
-              <em>Что-нибудь</em> подберём?
-            </h1>
-            <p className="lead">
-              Здесь корпоративный мерч, канцелярия и подарочные наборы.
-              Бесплатно — нужно только оставить заявку.{' '}
-              Можно выбрать <b>до трех уникальных позиций</b>; разные размеры одного товара считаются одной позицией.
-            </p>
-            {!merchAccess.isAllowed && (
-              <div className="form-error form-error-hero">
-                {getMerchAccessMessage(merchAccess)}
-              </div>
-            )}
-            <div className="hero-actions">
-              <button
-                type="button"
-                className="btn btn-accent btn-lg"
-                onClick={() =>
-                  document.getElementById('catalog-grid')
-                    ?.scrollIntoView({ behavior: 'smooth' })
-                }
-              >
-                Посмотреть каталог ↓
-              </button>
-              <a href="/orders" className="btn btn-ghost btn-lg">
-                Мои заказы →
-              </a>
-            </div>
-          </div>
-
-          <aside className="hero-quota">
-            <span className="kicker">Профиль</span>
-            <div className="profile-mini">
-              <div className="profile-mini-row">
-                <span>ФИО</span>
-                <b>{userName || '—'}</b>
-              </div>
-              <div className="profile-mini-row">
-                <span>Email</span>
-                <b>{userEmail || '—'}</b>
-              </div>
-              {userDepartment && (
-                <div className="profile-mini-row">
-                  <span>Отдел</span>
-                  <b>{userDepartment}</b>
-                </div>
-              )}
-              <div className="profile-mini-row">
-                <span>Город / офис</span>
-                <b>{deliveryAddress || '—'}</b>
-              </div>
-            </div>
-            <p className="quota-hint">
-              Доставка по умолчанию — в офис. Изменить можно при оформлении заказа.
-            </p>
-          </aside>
-        </section>
-
-        {/* Category nav */}
-        <nav className="cat-nav" aria-label="Категории">
-          {categories.map(cat => (
-            <button
-              key={cat}
-              type="button"
-              className={`cat-pill${selectedCategory === cat ? ' is-on' : ''}`}
-              onClick={() => setSelectedCategory(cat)}
-            >
-              {cat}
-            </button>
-          ))}
-        </nav>
-
-        {/* Catalog body: filters + grid */}
+      <div className="catalog catalog-compact">
         <div className="catalog-body">
 
           {/* Filters sidebar */}
-          <aside className="filters">
-            <div className="filters-block">
-              <label className="filters-label" htmlFor="catalog-search">Поиск</label>
+          <aside className="filters" aria-label="Фильтры">
+            <label className="filters-block">
+              <span className="filters-label">Поиск</span>
               <input
-                id="catalog-search"
                 className="filters-input"
                 placeholder="Худи, шоппер, блокнот…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
-            </div>
+            </label>
+
+            <label className="filters-block">
+              <span className="filters-label">Категория</span>
+              <select
+                className="filters-input filters-select"
+                value={category}
+                onChange={e => setCategory(e.target.value)}
+              >
+                <option value={ALL}>Все категории</option>
+                {categories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </label>
+
+            {sizes.length > 1 && (
+              <label className="filters-block">
+                <span className="filters-label">Размер</span>
+                <select
+                  className="filters-input filters-select"
+                  value={size}
+                  onChange={e => setSize(e.target.value)}
+                >
+                  <option value={ALL}>Все размеры</option>
+                  {sizes.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {hasFilters && (
+              <button type="button" className="filters-reset" onClick={resetFilters}>
+                Сбросить фильтры
+              </button>
+            )}
 
             <div className="filters-note">
               <span className="kicker">Правила</span>
-              <p>Один товар = одна штука. Нельзя заказать несколько единиц или несколько вариантов одного товара.</p>
-              <p>Максимум — 3 уникальные позиции. Мерч доступен сотрудникам со стажем больше 3 месяцев.</p>
-            </div>
-
-            <div className="filters-note">
-              <span className="kicker">Каталог</span>
-              <p>
-                Сейчас доступно {products.length}{' '}
-                {decline(products.length, ['товар', 'товара', 'товаров'])} в{' '}
-                {categoryCount}{' '}
-                {decline(categoryCount, ['категории', 'категориях', 'категориях'])}.
-              </p>
+              <ol className="rules-list">
+                {RULES.map((rule, index) => (
+                  <li key={rule}>
+                    <span className="rules-num">{index + 1}</span>
+                    {rule}
+                  </li>
+                ))}
+              </ol>
             </div>
           </aside>
 
           {/* Grid area */}
           <main className="grid-wrap">
+            {!merchAccess.isAllowed && (
+              <div className="form-error catalog-access">
+                {getMerchAccessMessage(merchAccess)}
+              </div>
+            )}
+
             <div className="grid-head">
               <div className="grid-count">
-                <span className="num">{filteredProducts.length}</span>{' '}
-                {decline(filteredProducts.length, ['товар', 'товара', 'товаров'])}
+                Выбрано <span className="num">{cart.length}</span> из{' '}
+                <span className="num num-accent">{MAX_UNIQUE_PRODUCTS}</span>
+                <span className="grid-count-mute">
+                  {' '}· {filteredProducts.length}{' '}
+                  {decline(filteredProducts.length, ['товар', 'товара', 'товаров'])}
+                </span>
               </div>
-              <div className="grid-sort">
+              <label className="grid-sort">
                 <span className="kicker">Сортировка</span>
                 <select
                   className="sort-select"
@@ -405,7 +403,7 @@ export default function CatalogClient({
                   <option value="rec">Рекомендуем</option>
                   <option value="abc">По алфавиту</option>
                 </select>
-              </div>
+              </label>
             </div>
 
             <div id="catalog-grid" className="grid-layout">
@@ -414,13 +412,21 @@ export default function CatalogClient({
                   <div className="empty">
                     <div className="empty-mark">∅</div>
                     <h3>Товары не найдены</h3>
-                    <p>Сбросьте поиск или выберите другую категорию.</p>
+                    <p>Измените фильтры или сбросьте их.</p>
+                    {hasFilters && (
+                      <button type="button" className="filters-reset" onClick={resetFilters}>
+                        Сбросить фильтры
+                      </button>
+                    )}
                   </div>
                 ) : (
                   filteredProducts.map(product => (
                     <ProductCard
-                      key={product.id}
+                      // При смене фильтра размера карточка пересоздаётся и
+                      // подставляет вариант этого размера по умолчанию.
+                      key={`${product.id}:${size}`}
                       product={product}
+                      preferredSize={size === ALL ? null : size}
                       isInCart={isProductInCart(product.id)}
                       isBlocked={!merchAccess.isAllowed || cart.length >= MAX_UNIQUE_PRODUCTS}
                       onAddToCart={addToCart}
@@ -431,13 +437,12 @@ export default function CatalogClient({
 
               <CartAside
                 cart={cart}
-                totalQty={totalQty}
                 deliveryType={deliveryType}
                 deliveryAddress={deliveryAddress}
                 phone={phone}
-                comment={comment}
-                isRemote={isRemote}
                 country={country}
+                comment={comment}
+                handout={handout}
                 isSubmitting={isSubmitting}
                 checkoutError={checkoutError}
                 checkoutSuccess={checkoutSuccess}
@@ -446,9 +451,8 @@ export default function CatalogClient({
                 onDeliveryTypeChange={setDeliveryType}
                 onDeliveryAddressChange={setDeliveryAddress}
                 onPhoneChange={setPhone}
-                onCommentChange={setComment}
-                onRemoteChange={setIsRemote}
                 onCountryChange={setCountry}
+                onCommentChange={setComment}
                 onCheckout={handleCheckout}
               />
             </div>
@@ -466,17 +470,21 @@ export default function CatalogClient({
 
 function ProductCard({
   product,
+  preferredSize,
   isInCart,
   isBlocked,
   onAddToCart,
 }: {
   product: CatalogProduct
+  preferredSize: string | null
   isInCart: boolean
   isBlocked: boolean
   onAddToCart: (product: CatalogProduct, variant: CatalogVariant) => void
 }) {
   const [selectedVariantId, setSelectedVariantId] = useState(
-    product.variants[0]?.id ?? ''
+    (preferredSize && product.variants.find(v => getSizeKey(v) === preferredSize)?.id) ||
+      product.variants[0]?.id ||
+      ''
   )
 
   const selectedVariant =
@@ -554,13 +562,12 @@ function ProductCard({
 
 function CartAside({
   cart,
-  totalQty,
   deliveryType,
   deliveryAddress,
   phone,
-  comment,
-  isRemote,
   country,
+  comment,
+  handout,
   isSubmitting,
   checkoutError,
   checkoutSuccess,
@@ -569,55 +576,58 @@ function CartAside({
   onDeliveryTypeChange,
   onDeliveryAddressChange,
   onPhoneChange,
-  onCommentChange,
-  onRemoteChange,
   onCountryChange,
+  onCommentChange,
   onCheckout,
 }: {
   cart: CartItem[]
-  totalQty: number
-  deliveryType: DeliveryType
+  deliveryType: CheckoutDeliveryType
   deliveryAddress: string
   phone: string
-  comment: string
-  isRemote: boolean
   country: string
+  comment: string
+  handout: HandoutInfo
   isSubmitting: boolean
   checkoutError: string | null
   checkoutSuccess: string | null
   merchAccess: MerchAccess
   onRemove: (variantId: string) => void
-  onDeliveryTypeChange: (value: DeliveryType) => void
+  onDeliveryTypeChange: (value: CheckoutDeliveryType) => void
   onDeliveryAddressChange: (value: string) => void
   onPhoneChange: (value: string) => void
-  onCommentChange: (value: string) => void
-  onRemoteChange: (value: boolean) => void
   onCountryChange: (value: string) => void
+  onCommentChange: (value: string) => void
   onCheckout: () => void
 }) {
+  const isPost = deliveryType === 'post'
+
   return (
     <aside className="cart-aside" id="cart-aside">
       <div className="cart-header">
-        <div>
-          <p className="aside-title">Корзина</p>
-          <p className="cart-subtitle">
-            {cart.length > 0
-              ? `${cart.length} ${decline(cart.length, ['товар', 'товара', 'товаров'])}`
-              : 'Пока пусто'}
-          </p>
-        </div>
-        <span className="cart-counter">{totalQty}</span>
+        <p className="aside-title">Корзина</p>
+        <span className="cart-limit">
+          {cart.length} / {MAX_UNIQUE_PRODUCTS}{' '}
+          {decline(MAX_UNIQUE_PRODUCTS, ['позиция', 'позиции', 'позиций'])}
+        </span>
       </div>
 
       {checkoutSuccess && <CheckoutSuccessCard message={checkoutSuccess} />}
 
       {cart.length === 0 ? (
-        <div className="cart-empty">
-          <div className="cart-empty-mark">+</div>
-          <p className="cart-empty-text">
-            Добавьте товары из каталога, чтобы оформить заявку.
-          </p>
-        </div>
+        <>
+          <div className="cart-empty">
+            <div className="cart-empty-mark">+</div>
+            <p className="cart-empty-title">Пока пусто</p>
+            <p className="cart-empty-text">
+              Добавьте до {MAX_UNIQUE_PRODUCTS} позиций из каталога.
+            </p>
+          </div>
+          {checkoutError && <div className="form-error">{checkoutError}</div>}
+          <p className="cart-note">Способ получения укажете при оформлении.</p>
+          <button type="button" className="checkout-btn" disabled>
+            Оформить заказ
+          </button>
+        </>
       ) : (
         <>
           <div className="cart-lines">
@@ -641,41 +651,67 @@ function CartAside({
             ))}
           </div>
 
-          <div className="cart-summary">
-            <div className="sum-row"><span>Товаров</span><b>{cart.length}</b></div>
-            <div className="sum-row"><span>Лимит</span><b>{cart.length}/{MAX_UNIQUE_PRODUCTS}</b></div>
-            <div className="sum-row"><span>Количество</span><b>{cart.length} шт.</b></div>
-            <div className="sum-row"><span>Получение</span><b>{deliveryLabels[deliveryType]}</b></div>
-          </div>
-
           <div className="cart-form">
-            <label className="form-label">
-              Способ получения
-              <select
-                className="form-select"
-                value={deliveryType}
-                onChange={e => onDeliveryTypeChange(e.target.value as DeliveryType)}
-              >
-                <option value="office">В офис</option>
-                <option value="pvz">ПВЗ / филиал</option>
-                <option value="pickup">Самовывоз</option>
-                <option value="courier">Курьер</option>
-              </select>
-            </label>
+            <fieldset className="delivery-options">
+              <legend className="form-label">Способ получения</legend>
+              {DELIVERY_OPTIONS.map(option => {
+                const isOn = option.value === deliveryType
+                return (
+                  <label
+                    key={option.value}
+                    className={`delivery-option${isOn ? ' is-on' : ''}${option.disabled ? ' is-disabled' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="delivery-type"
+                      value={option.value}
+                      checked={isOn}
+                      disabled={option.disabled}
+                      onChange={() => onDeliveryTypeChange(option.value as CheckoutDeliveryType)}
+                    />
+                    <span className="delivery-option-body">
+                      <b>{option.title}</b>
+                      <span>{option.hint}</span>
+                    </span>
+                  </label>
+                )
+              })}
+            </fieldset>
+
+            {!isPost && (handout.place || handout.deadline) && (
+              <div className="delivery-info">
+                {handout.place && <span><b>Где:</b> {handout.place}</span>}
+                {handout.deadline && <span><b>Когда:</b> {formatDateTime(handout.deadline)}</span>}
+              </div>
+            )}
+
+            {isPost && (
+              <>
+                <label className="form-label">
+                  Страна
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={country}
+                    onChange={e => onCountryChange(e.target.value)}
+                    placeholder="Например: Узбекистан"
+                  />
+                </label>
+                <label className="form-label">
+                  Город и адрес
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={deliveryAddress}
+                    onChange={e => onDeliveryAddressChange(e.target.value)}
+                    placeholder="Самарканд, ул. …, дом, кв."
+                  />
+                </label>
+              </>
+            )}
 
             <label className="form-label">
-              Адрес / офис / точка получения
-              <input
-                type="text"
-                className="form-input"
-                value={deliveryAddress}
-                onChange={e => onDeliveryAddressChange(e.target.value)}
-                placeholder="Например: Ташкент, офис Сергели"
-              />
-            </label>
-
-            <label className="form-label">
-              Телефон
+              Телефон{isPost ? '' : ' (необязательно)'}
               <input
                 type="tel"
                 className="form-input"
@@ -684,28 +720,6 @@ function CartAside({
                 placeholder="+998..."
               />
             </label>
-
-            <label className="form-check">
-              <input
-                type="checkbox"
-                checked={isRemote}
-                onChange={e => onRemoteChange(e.target.checked)}
-              />
-              Я удаленщик (получаю мерч не в офисе)
-            </label>
-
-            {isRemote && (
-              <label className="form-label">
-                Страна
-                <input
-                  type="text"
-                  className="form-input"
-                  value={country}
-                  onChange={e => onCountryChange(e.target.value)}
-                  placeholder="Например: Казахстан"
-                />
-              </label>
-            )}
 
             <label className="form-label">
               Комментарий
@@ -738,6 +752,7 @@ function CartAside({
     </aside>
   )
 }
+
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  CheckoutSuccessCard                                                         */
@@ -795,9 +810,37 @@ function LogoutButton() {
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 function formatVariant(variant: CatalogVariant) {
-  const size  = variant.size  || 'ONE SIZE'
+  const size  = variant.size  || ONE_SIZE
   const color = variant.color || 'Без цвета'
   return `${size} · ${color}`
+}
+
+function getSizeKey(variant: CatalogVariant) {
+  return variant.size?.trim().toUpperCase() || ONE_SIZE
+}
+
+/** XS → S → M → L → XL …, затем прочие по алфавиту, ONE SIZE — в конце. */
+function compareSizes(a: string, b: string) {
+  if (a === ONE_SIZE) return 1
+  if (b === ONE_SIZE) return -1
+  const ia = SIZE_ORDER.indexOf(a)
+  const ib = SIZE_ORDER.indexOf(b)
+  if (ia !== -1 && ib !== -1) return ia - ib
+  if (ia !== -1) return -1
+  if (ib !== -1) return 1
+  return a.localeCompare(b, 'ru', { numeric: true })
+}
+
+function formatDateTime(iso: string) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Tashkent',
+  })
 }
 
 function getUserFirstName(fullName: string | null, email: string | null): string {
@@ -847,6 +890,12 @@ function getCheckoutErrorMessage(error: string): string {
     return 'Мерч доступен сотрудникам, отработавшим больше 3 месяцев.'
   if (error.includes('employee_not_in_directory') || error.includes('employee_inactive'))
     return 'Ваш доступ к мерчу не найден в HR-реестре. Обратитесь к HR или администратору.'
+  if (error.includes('delivery_type_unavailable'))
+    return 'Этот способ получения пока недоступен. Выберите «В офисе» или «Почтой BTS».'
+  if (error.includes('post_details_required'))
+    return 'Для отправки почтой укажите страну, адрес и телефон.'
+  if (error.includes('invalid input value for enum'))
+    return 'Отправка почтой ещё не включена на сервере. Обратитесь к администратору.'
   if (error.includes('product_is_not_available'))
     return 'Один из выбранных товаров сейчас недоступен для заказа.'
   return error || 'Не удалось оформить заказ'

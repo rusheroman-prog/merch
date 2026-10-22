@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { ACTIVE_DELIVERY_TYPES, type DeliveryType } from '@/lib/supabase/types'
 
 type CheckoutItem = {
   variant_id: string
@@ -8,7 +9,7 @@ type CheckoutItem = {
 
 type CheckoutPayload = {
   items: CheckoutItem[]
-  delivery_type?: 'office' | 'pvz' | 'pickup' | 'courier'
+  delivery_type?: DeliveryType
   delivery_address?: string
   phone?: string
   comment?: string
@@ -111,14 +112,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'one_variant_per_product_only' }, { status: 400 })
     }
 
-    const isRemote = body.is_remote === true
+    // Принимаем только активные способы получения: офис или почта BTS.
+    // ПВЗ и курьер в интерфейсе неактивны — защищаемся и на сервере.
+    const deliveryType: DeliveryType = body.delivery_type ?? 'office'
+
+    if (!ACTIVE_DELIVERY_TYPES.includes(deliveryType)) {
+      return NextResponse.json({ error: 'delivery_type_unavailable' }, { status: 400 })
+    }
+
+    // Отправка почтой = удалёнщик. Флаг выводим из способа получения,
+    // чтобы он не расходился с выбором в корзине.
+    const isRemote = deliveryType === 'post'
     const country = isRemote ? (body.country?.trim() || null) : null
+    const deliveryAddress = body.delivery_address?.trim() || null
+    const phone = body.phone?.trim() || null
+
+    if (isRemote && (!country || !deliveryAddress || !phone)) {
+      return NextResponse.json({ error: 'post_details_required' }, { status: 400 })
+    }
 
     const { data, error } = await supabase.rpc('create_merch_order', {
       p_items: items,
-      p_delivery_type: body.delivery_type ?? 'office',
-      p_delivery_address: body.delivery_address ?? null,
-      p_phone: body.phone ?? null,
+      p_delivery_type: deliveryType,
+      p_delivery_address: deliveryAddress,
+      p_phone: phone,
       p_comment: body.comment ?? null,
       p_is_remote: isRemote,
       p_country: country,

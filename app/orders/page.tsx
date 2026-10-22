@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
 import { decline, getProductLetter } from '@/lib/utils'
-import type { DeliveryType, OrderStatus } from '@/lib/supabase/types'
+import { DELIVERY_TYPE_LABELS, type DeliveryType, type OrderStatus } from '@/lib/supabase/types'
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  Types                                                                       */
@@ -69,12 +69,7 @@ const statusPillClass: Record<OrderStatus, string> = {
   rejected:   'pill pill-red',
 }
 
-const deliveryLabels: Record<DeliveryType, string> = {
-  office:  'В офис',
-  pvz:     'ПВЗ / филиал',
-  pickup:  'Самовывоз',
-  courier: 'Курьер',
-}
+const deliveryLabels = DELIVERY_TYPE_LABELS
 
 const flowStatuses: OrderStatus[] = [
   'new', 'review', 'confirmed', 'assembling', 'shipped', 'received',
@@ -299,7 +294,10 @@ function OrderCard({ order }: { order: Order }) {
               ? formatDateShort(order.received_at)
               : deliveryLabels[order.delivery_type]}
           </p>
-          <p className="order-side-mute">{order.delivery_address || 'Адрес не указан'}</p>
+          <p className="order-side-mute">
+            {order.delivery_address ||
+              (order.delivery_type === 'office' ? 'Выдача в офисе' : 'Адрес не указан')}
+          </p>
         </div>
       </div>
 
@@ -350,7 +348,7 @@ function OrderCard({ order }: { order: Order }) {
       {/* ── Pickup barcode ── */}
       {!isRejected && (
         <div className="order-pickup">
-          <OrderBarcode value={order.order_number} size={104} />
+          <OrderBarcode value={order.order_number} size={104} downloadName={`uzum-merch-${order.order_number}`} />
           <div className="order-pickup-text">
             <b>Код для получения: <span className="order-pickup-num">#{order.order_number}</span></b>
             <span>

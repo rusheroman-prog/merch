@@ -44,8 +44,24 @@ export default async function CatalogPage() {
 
   const { data: employee } = await supabase
     .from('employees')
-    .select('full_name, is_admin, phone, city, office, department, business_unit, hired_at, is_active')
+    .select('full_name, is_admin, phone, hired_at')
     .eq('id', user.id)
+    .maybeSingle()
+
+  // Профиля больше нет: телефон и адрес подставляем из последнего заказа,
+  // чтобы сотруднику не вводить их заново.
+  const { data: lastOrder } = await supabase
+    .from('orders')
+    .select('delivery_type, delivery_address, phone, country')
+    .eq('employee_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const { data: settings } = await supabase
+    .from('merch_settings')
+    .select('handout_deadline, handout_place')
+    .eq('id', 1)
     .maybeSingle()
 
   const { data: accessRows } = await supabase.rpc('get_employee_merch_access', {
@@ -53,9 +69,7 @@ export default async function CatalogPage() {
   })
   const access = Array.isArray(accessRows) ? accessRows[0] : null
 
-  const defaultDeliveryAddress = [employee?.city, employee?.office]
-    .filter(Boolean)
-    .join(', ')
+  const lastWasPost = lastOrder?.delivery_type === 'post'
 
   const { data, error } = await supabase
     .from('products')
@@ -139,12 +153,16 @@ export default async function CatalogPage() {
       products={products}
       userEmail={user.email ?? null}
       userName={employee?.full_name ?? null}
-      userDepartment={employee?.business_unit ?? employee?.department ?? null}
       isAdmin={Boolean(employee?.is_admin)}
       checkoutDefaults={{
-        deliveryType: 'office',
-        deliveryAddress: defaultDeliveryAddress,
-        phone: employee?.phone ?? '',
+        deliveryType: lastWasPost ? 'post' : 'office',
+        deliveryAddress: lastWasPost ? lastOrder?.delivery_address ?? '' : '',
+        phone: lastOrder?.phone ?? employee?.phone ?? '',
+        country: lastOrder?.country ?? '',
+      }}
+      handout={{
+        place: settings?.handout_place ?? null,
+        deadline: settings?.handout_deadline ?? null,
       }}
       merchAccess={{
         isAllowed: Boolean(access?.is_allowed),

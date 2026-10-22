@@ -11,7 +11,15 @@ export type OrderStatus =
   | 'cancelled'
   | 'rejected'
 
-export type DeliveryType = 'office' | 'pvz' | 'pickup' | 'courier'
+/**
+ * office — выдача в офисе; post — отправка почтой BTS (удалёнщики).
+ * pvz / courier — пока не принимаются (в корзине неактивны).
+ * pickup — устаревшее значение, остаётся для старых заказов.
+ */
+export type DeliveryType = 'office' | 'post' | 'pvz' | 'pickup' | 'courier'
+
+/** Способы получения, которые сейчас принимает оформление заказа. */
+export const ACTIVE_DELIVERY_TYPES: DeliveryType[] = ['office', 'post']
 
 export type MovementType =
   | 'income'
@@ -33,7 +41,8 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 }
 
 export const DELIVERY_TYPE_LABELS: Record<DeliveryType, string> = {
-  office:  'В офис',
+  office:  'В офисе',
+  post:    'Почтой BTS',
   pvz:     'ПВЗ / Филиал',
   pickup:  'Самовывоз',
   courier: 'Курьер',
