@@ -29,17 +29,6 @@ export type MovementType =
   | 'return'
   | 'adjustment'
 
-export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
-  new:        'Новый заказ',
-  review:     'На проверке',
-  confirmed:  'Подтвержден',
-  assembling: 'Собирается',
-  shipped:    'Отправлен',
-  received:   'Получен',
-  cancelled:  'Отменен',
-  rejected:   'Отклонен',
-}
-
 export const DELIVERY_TYPE_LABELS: Record<DeliveryType, string> = {
   office:  'В офисе',
   post:    'Почтой BTS',

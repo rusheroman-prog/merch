@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
 import { decline, getProductLetter } from '@/lib/utils'
 import { DELIVERY_TYPE_LABELS, type DeliveryType, type OrderStatus } from '@/lib/supabase/types'
+import { flowIndex, flowStepLabels, isShippedOrder, orderStatusLabel, statusTone } from '@/lib/orderStatus'
+import { SUPPORT_LABEL, SUPPORT_URL } from '@/lib/support'
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  Types                                                                       */
@@ -47,33 +49,7 @@ type Order = {
 /*  Constants                                                                   */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-const statusLabels: Record<OrderStatus, string> = {
-  new:        'Новый',
-  review:     'На проверке',
-  confirmed:  'Подтверждён',
-  assembling: 'Собирается',
-  shipped:    'Отправлен',
-  received:   'Получен',
-  cancelled:  'Отменён',
-  rejected:   'Отклонён',
-}
-
-const statusPillClass: Record<OrderStatus, string> = {
-  new:        'pill pill-amber',
-  review:     'pill pill-amber',
-  confirmed:  'pill pill-blue',
-  assembling: 'pill pill-blue',
-  shipped:    'pill pill-green',
-  received:   'pill pill-green',
-  cancelled:  'pill pill-red',
-  rejected:   'pill pill-red',
-}
-
 const deliveryLabels = DELIVERY_TYPE_LABELS
-
-const flowStatuses: OrderStatus[] = [
-  'new', 'review', 'confirmed', 'assembling', 'shipped', 'received',
-]
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  Page                                                                        */
@@ -250,6 +226,9 @@ function OrderCard({ order }: { order: Order }) {
 
   const isRejected = order.status === 'cancelled' || order.status === 'rejected'
   const isReceived = order.status === 'received'
+  const isReady    = order.status === 'shipped' && isShippedOrder(order.delivery_type) === false
+  const stepLabels = flowStepLabels(order.delivery_type)
+  const currentIdx = Math.max(0, flowIndex(order.status))
 
   return (
     <article className="order">
@@ -263,8 +242,8 @@ function OrderCard({ order }: { order: Order }) {
             <span className="order-track">Трек: {order.tracking_number}</span>
           )}
         </div>
-        <span className={statusPillClass[order.status]}>
-          {statusLabels[order.status]}
+        <span className={`pill pill-${statusTone(order.status)}`}>
+          {orderStatusLabel(order.status, order.delivery_type)}
         </span>
       </div>
 
@@ -308,19 +287,17 @@ function OrderCard({ order }: { order: Order }) {
             {order.status === 'cancelled' ? 'Заказ был отменён.' : 'Заказ был отклонён.'}
           </div>
         ) : (
-          flowStatuses.map(step => {
-            const stepIdx    = flowStatuses.indexOf(step)
-            const currentIdx = Math.max(0, flowStatuses.indexOf(order.status))
-            const isDone     = stepIdx < currentIdx
-            const isCurrent  = stepIdx === currentIdx
+          stepLabels.map((label, stepIdx) => {
+            const isDone    = stepIdx < currentIdx || isReceived
+            const isCurrent = stepIdx === currentIdx && !isReceived
 
             return (
               <div
-                key={step}
+                key={label}
                 className={`timeline-step${isDone ? ' done' : ''}${isCurrent ? ' current' : ''}`}
               >
                 <span className={`timeline-dot${isDone ? ' done' : ''}${isCurrent ? ' current' : ''}`} />
-                <span className="timeline-lbl">{getFlowLabel(step)}</span>
+                <span className="timeline-lbl">{label}</span>
               </div>
             )
           })
@@ -354,7 +331,9 @@ function OrderCard({ order }: { order: Order }) {
             <span>
               {isReceived
                 ? 'Заказ уже получен.'
-                : 'Покажите этот код при получении мерча — по нему вас найдут в списке.'}
+                : isReady
+                  ? 'Заказ готов — можно забирать. Покажите этот код при получении.'
+                  : 'Покажите этот код при получении мерча — по нему вас найдут в списке.'}
             </span>
           </div>
         </div>
@@ -374,9 +353,12 @@ function OrderCard({ order }: { order: Order }) {
           {isReceived && (
             <span className="order-status-note">Заказ завершён ✓</span>
           )}
-          {!isReceived && !isRejected && (
+          {!isReceived && (
             <span className="order-foot-mute">
-              Статус обновляется администратором
+              Вопросы по заказу?{' '}
+              {SUPPORT_URL
+                ? <a href={SUPPORT_URL} target="_blank" rel="noreferrer" className="order-support-link">{SUPPORT_LABEL}</a>
+                : 'Напишите команде мерча'}
             </span>
           )}
         </div>
@@ -414,16 +396,4 @@ function formatDateTime(value: string) {
     hour:     '2-digit',
     minute:   '2-digit',
   })
-}
-
-function getFlowLabel(status: OrderStatus) {
-  const map: Partial<Record<OrderStatus, string>> = {
-    new:        'Заявка',
-    review:     'Проверка',
-    confirmed:  'Подтверждение',
-    assembling: 'Сборка',
-    shipped:    'Отправка',
-    received:   'Получение',
-  }
-  return map[status] ?? statusLabels[status]
 }

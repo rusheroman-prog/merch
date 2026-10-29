@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import QRCode from 'qrcode'
 import { DELIVERY_TYPE_LABELS, type DeliveryType, type OrderStatus } from '@/lib/supabase/types'
 import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
+import { ADMIN_STATUS_OPTIONS, orderStatusLabel, statusTone } from '@/lib/orderStatus'
 
 type PickupStatus = 'pending' | 'packed' | 'handed_owner' | 'handed_other' | 'refused'
 
@@ -68,29 +69,12 @@ type AdminOrdersClientProps = {
 
 type SortMode = 'date_desc' | 'date_asc' | 'number_desc' | 'number_asc'
 
-const statusLabels: Record<OrderStatus, string> = {
-  new: 'Новый',
-  review: 'На проверке',
-  confirmed: 'Подтверждён',
-  assembling: 'Собирается',
-  shipped: 'Отправлен',
-  received: 'Получен',
-  cancelled: 'Отменён',
-  rejected: 'Отклонён',
-}
-
 const deliveryLabels = DELIVERY_TYPE_LABELS
 
-const statusOptions: OrderStatus[] = [
-  'new',
-  'review',
-  'confirmed',
-  'assembling',
-  'shipped',
-  'received',
-  'cancelled',
-  'rejected',
-]
+/** Устаревшие review/confirmed показываем и фильтруем вместе с «Заявкой». */
+function statusBucket(status: OrderStatus): OrderStatus {
+  return status === 'review' || status === 'confirmed' ? 'new' : status
+}
 
 export default function AdminOrdersClient({
   orders,
@@ -129,7 +113,8 @@ export default function AdminOrdersClient({
   const counters = useMemo(() => {
     return orders.reduce<Record<string, number>>((acc, order) => {
       acc.all = (acc.all ?? 0) + 1
-      acc[order.status] = (acc[order.status] ?? 0) + 1
+      const bucket = statusBucket(order.status)
+      acc[bucket] = (acc[bucket] ?? 0) + 1
       return acc
     }, {})
   }, [orders])
@@ -139,7 +124,7 @@ export default function AdminOrdersClient({
 
     const result = orders.filter((order) => {
       const statusMatch =
-        statusFilter === 'all' || order.status === statusFilter
+        statusFilter === 'all' || statusBucket(order.status) === statusFilter
 
       const itemsMatch = order.order_items.some((item) =>
         [item.product_name, item.size, item.color, item.sku]
@@ -183,7 +168,7 @@ export default function AdminOrdersClient({
 
       return {
         order_number:     order.order_number,
-        status:           statusLabels[order.status],
+        status:           orderStatusLabel(order.status, order.delivery_type),
         created_at:       formatDateTime(order.created_at),
         full_name:        order.full_name || '',
         email:            order.email || '',
@@ -367,7 +352,7 @@ export default function AdminOrdersClient({
 
                       <div>
                         <span className={getStatusBadgeClass(order.status)}>
-                          {statusLabels[order.status]}
+                          {orderStatusLabel(order.status, order.delivery_type)}
                         </span>
                       </div>
 
@@ -412,14 +397,14 @@ function StatusTabs({
         <span>{counters.all ?? 0}</span>
       </button>
 
-      {statusOptions.map((status) => (
+      {ADMIN_STATUS_OPTIONS.map((status) => (
         <button
           key={status}
           type="button"
           onClick={() => onChange(status)}
           className={`ao-status-tab${activeStatus === status ? ' ao-status-tab-active' : ''}`}
         >
-          {statusLabels[status]}
+          {orderStatusLabel(status)}
           <span>{counters[status] ?? 0}</span>
         </button>
       ))}
@@ -610,8 +595,15 @@ function OrderDetail({ order }: { order: AdminOrder }) {
               onChange={(e) => setStatus(e.target.value as OrderStatus)}
               className="ao-input"
             >
-              {statusOptions.map((opt) => (
-                <option key={opt} value={opt}>{statusLabels[opt]}</option>
+              {/* Старый review/confirmed оставляем в списке, чтобы сохранение не сдвигало статус само. */}
+              {(ADMIN_STATUS_OPTIONS.includes(order.status)
+                ? ADMIN_STATUS_OPTIONS
+                : [order.status, ...ADMIN_STATUS_OPTIONS]
+              ).map((opt) => (
+                <option key={opt} value={opt}>
+                  {orderStatusLabel(opt, order.delivery_type)}
+                  {opt === order.status && !ADMIN_STATUS_OPTIONS.includes(opt) ? ' (старый статус)' : ''}
+                </option>
               ))}
             </select>
           </label>
@@ -762,8 +754,6 @@ function getItemMarkClass(index: number): string {
 }
 
 function getStatusBadgeClass(status: OrderStatus): string {
-  if (status === 'shipped'   || status === 'received')   return 'ao-badge ao-badge-green'
-  if (status === 'confirmed' || status === 'assembling') return 'ao-badge ao-badge-blue'
-  if (status === 'cancelled' || status === 'rejected')   return 'ao-badge ao-badge-red'
-  return 'ao-badge'
+  const tone = statusTone(status)
+  return tone === 'amber' ? 'ao-badge' : `ao-badge ao-badge-${tone}`
 }

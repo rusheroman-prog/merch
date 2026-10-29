@@ -3959,3 +3959,7 @@ a.login-help:hover .login-help-body span { color: var(--accent); }
   transition: border-color 0.15s;
 }
 .order-qr-download:hover { border-bottom-color: var(--accent); }
+
+/* Support contact in the employee order footer */
+.order-support-link { color: var(--accent); font-weight: 700; text-decoration: none; }
+.order-support-link:hover { text-decoration: underline; }

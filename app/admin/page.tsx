@@ -3,10 +3,8 @@ import DeadlineEditor from '@/components/DeadlineEditor'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
 import { redirect } from 'next/navigation'
-
-type OrderStatus =
-  | 'new' | 'review' | 'confirmed' | 'assembling'
-  | 'shipped' | 'received' | 'cancelled' | 'rejected'
+import type { OrderStatus } from '@/lib/supabase/types'
+import { ADMIN_STATUS_OPTIONS, orderStatusLabel, statusTone } from '@/lib/orderStatus'
 
 type AdminDashOrderItem = {
   id: string
@@ -46,20 +44,10 @@ type AdminDashProduct = {
   product_variants: AdminDashVariant[]
 }
 
-const statusLabels: Record<OrderStatus, string> = {
-  new:        'Новый',
-  review:     'На проверке',
-  confirmed:  'Подтверждён',
-  assembling: 'Собирается',
-  shipped:    'Отправлен',
-  received:   'Получен',
-  cancelled:  'Отменён',
-  rejected:   'Отклонён',
+/** Устаревшие review/confirmed считаем вместе с «Заявкой». */
+function statusBucket(status: OrderStatus): OrderStatus {
+  return status === 'review' || status === 'confirmed' ? 'new' : status
 }
-
-const statusOrder: OrderStatus[] = [
-  'new', 'review', 'confirmed', 'assembling', 'shipped', 'received', 'cancelled', 'rejected',
-]
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
@@ -126,10 +114,10 @@ export default async function AdminDashboardPage() {
       .filter(v => v.availableQty <= 4)
   )
 
-  const statusCounters = statusOrder.map(status => ({
+  const statusCounters = ADMIN_STATUS_OPTIONS.map(status => ({
     status,
-    label: statusLabels[status],
-    count: orders.filter(o => o.status === status).length,
+    label: orderStatusLabel(status),
+    count: orders.filter(o => statusBucket(o.status) === status).length,
   }))
 
   const recentOrders   = orders.slice(0, 6)
@@ -176,7 +164,7 @@ export default async function AdminDashboardPage() {
           <div className="dash-status-grid">
             {statusCounters.map(item => (
               <div key={item.status} className="dash-status-tile">
-                <span className={`dash-status-dot ${getStatusDotClass(item.status)}`} />
+                <span className={`dash-status-dot dash-status-dot-${statusTone(item.status)}`} />
                 <b>{item.count}</b>
                 <small>{item.label}</small>
               </div>
@@ -201,8 +189,8 @@ export default async function AdminDashboardPage() {
                 </div>
                 <div className="dash-recent-right">
                   <small>{formatRelativeDate(order.created_at)}</small>
-                  <span className={getStatusBadgeClass(order.status)}>
-                    {statusLabels[order.status]}
+                  <span className={`dash-badge dash-badge-${statusTone(order.status)}`}>
+                    {orderStatusLabel(order.status)}
                   </span>
                 </div>
               </div>
@@ -246,7 +234,7 @@ export default async function AdminDashboardPage() {
                 <div>
                   <b>Создан заказ #{order.order_number}</b>
                   <span>
-                    {order.full_name || order.email || 'Сотрудник'} · {statusLabels[order.status]}
+                    {order.full_name || order.email || 'Сотрудник'} · {orderStatusLabel(order.status)}
                   </span>
                 </div>
                 <small>{formatRelativeDate(order.created_at)}</small>
@@ -287,20 +275,6 @@ function KpiCard({
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  Helpers                                                                     */
 /* ─────────────────────────────────────────────────────────────────────────── */
-
-function getStatusDotClass(status: OrderStatus) {
-  if (status === 'new'       || status === 'review')     return 'dash-status-dot-amber'
-  if (status === 'confirmed' || status === 'assembling') return 'dash-status-dot-blue'
-  if (status === 'shipped'   || status === 'received')   return 'dash-status-dot-green'
-  return 'dash-status-dot-red'
-}
-
-function getStatusBadgeClass(status: OrderStatus) {
-  if (status === 'shipped'   || status === 'received')   return 'dash-badge dash-badge-green'
-  if (status === 'confirmed' || status === 'assembling') return 'dash-badge dash-badge-blue'
-  if (status === 'cancelled' || status === 'rejected')   return 'dash-badge dash-badge-red'
-  return 'dash-badge dash-badge-amber'
-}
 
 function formatVariant(size: string | null, color: string | null) {
   return [color || 'Без цвета', size || 'ONE SIZE'].join(' · ')
