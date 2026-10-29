@@ -188,6 +188,7 @@ export type Database = {
           total_qty:    number
           reserved_qty: number
           is_active:    boolean
+          alert_qty:    number | null
           created_at:   string
           updated_at:   string
         }
@@ -200,6 +201,7 @@ export type Database = {
           total_qty?:    number
           reserved_qty?: number
           is_active?:    boolean
+          alert_qty?:    number | null
         }
         Update: Partial<Database['public']['Tables']['product_variants']['Insert']>
         Relationships: [

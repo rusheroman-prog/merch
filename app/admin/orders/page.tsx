@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { countStockAlerts } from '@/lib/stockAlerts'
 import { needsPasswordSetup } from '@/lib/auth'
 import AdminOrdersClient, { type AdminOrder } from './AdminOrdersClient'
 
@@ -95,30 +96,7 @@ export default async function AdminOrdersPage() {
     )
     .order('created_at', { ascending: false })
 
-  const { data: productsForStock } = await supabase
-    .from('products')
-    .select(
-      `
-      id,
-      product_variants (
-        id,
-        total_qty,
-        reserved_qty,
-        is_active
-      )
-    `
-    )
-
-  const stockAlertCount =
-    productsForStock?.reduce((sum, product) => {
-      const variants = product.product_variants ?? []
-      const lowCount = variants.filter((variant) => {
-        if (!variant.is_active) return false
-        const available = Number(variant.total_qty) - Number(variant.reserved_qty)
-        return available > 0 && available <= 4
-      }).length
-      return sum + lowCount
-    }, 0) ?? 0
+  const stockAlertCount = await countStockAlerts(supabase)
 
   if (error) {
     return (

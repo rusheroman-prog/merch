@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
+import { countStockAlerts } from '@/lib/stockAlerts'
 import AdminWelcomeClient, { type WelcomeInviteRow } from './AdminWelcomeClient'
 
 export default async function AdminWelcomePage() {
@@ -18,7 +19,7 @@ export default async function AdminWelcomePage() {
 
   if (!employee?.is_admin) redirect('/catalog')
 
-  const [{ data: invites, error: invitesError }, { count: orderCount }, { data: variants }, { data: welcomeProducts }] =
+  const [{ data: invites, error: invitesError }, { count: orderCount }, stockAlertCount, { data: welcomeProducts }] =
     await Promise.all([
       supabase
         .from('welcome_invites')
@@ -26,13 +27,9 @@ export default async function AdminWelcomePage() {
         .order('created_at', { ascending: false })
         .limit(200),
       supabase.from('orders').select('id', { count: 'exact', head: true }),
-      supabase.from('product_variants').select('total_qty, reserved_qty, is_active'),
+      countStockAlerts(supabase),
       supabase.from('products').select('id').eq('is_active', true).in('audience', ['welcome', 'both']),
     ])
-
-  const stockAlertCount = (variants ?? []).filter(
-    (v) => v.is_active && Number(v.total_qty) - Number(v.reserved_qty) <= 4
-  ).length
 
   return (
     <AdminWelcomeClient

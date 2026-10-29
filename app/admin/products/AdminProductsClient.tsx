@@ -5,6 +5,7 @@ import ProductImage from '@/components/ProductImage'
 import ProductImageUploader from '@/components/ProductImageUploader'
 import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
 import type { ProductAudience } from '@/lib/supabase/types'
+import { alertLimit, DEFAULT_ALERT_QTY, isLowStock } from '@/lib/stockAlerts'
 
 const AUDIENCE_LABELS: Record<ProductAudience, string> = {
   catalog: 'Только каталог',
@@ -29,6 +30,8 @@ export type AdminVariant = {
   total_qty: number
   reserved_qty: number
   is_active: boolean
+  /** Порог маячка; поля нет до миграции merch-stock-alerts.sql */
+  alert_qty?: number | null
   created_at: string
   updated_at: string
 }
@@ -153,7 +156,7 @@ export default function AdminProductsClient({
         const totalQty     = Number(variant.total_qty)
         const reservedQty  = Number(variant.reserved_qty)
         const availableQty = Math.max(0, totalQty - reservedQty)
-        const stockStatus  = availableQty <= 0 ? 'В нуле' : availableQty <= 4 ? 'Низкий остаток' : 'Норма'
+        const stockStatus  = availableQty <= 0 ? 'В нуле' : isLowStock(availableQty, variant.alert_qty) ? 'Низкий остаток' : 'Норма'
         return { ...baseRow, variant_size: variant.size || 'ONE SIZE', variant_color: variant.color || 'Без цвета', sku: variant.sku || '', variant_status: variant.is_active ? 'Активен' : 'Отключён', total_qty: String(totalQty), reserved_qty: String(reservedQty), available_qty: String(availableQty), stock_status: stockStatus }
       })
     })
@@ -965,6 +968,7 @@ function VariantRow({ variant }: { variant: AdminVariant }) {
   const [movementType, setMovementType] = useState<'income' | 'adjustment'>('income')
   const [qty,          setQty]          = useState('')
   const [comment,      setComment]      = useState('')
+  const [alertQty,     setAlertQty]     = useState(variant.alert_qty == null ? '' : String(variant.alert_qty))
   const [isSaving,     setIsSaving]     = useState(false)
   const [message,      setMessage]      = useState<string | null>(null)
   const [error,        setError]        = useState<string | null>(null)
@@ -1011,6 +1015,30 @@ function VariantRow({ variant }: { variant: AdminVariant }) {
     }
   }
 
+  async function handleSaveAlert() {
+    setIsSaving(true); setMessage(null); setError(null)
+
+    try {
+      const response = await fetch('/api/admin/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'set_alert_qty',
+          variant_id: variant.id,
+          alert_qty: alertQty.trim() === '' ? null : Number(alertQty),
+        }),
+      })
+      const result = await response.json()
+      if (!response.ok) { setError(result.error || 'Не удалось сохранить маячок'); return }
+      setMessage('Маячок сохранён')
+      router.refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <div className="ap-variant-row-wrap">
       <div className="ap-variant-row">
@@ -1020,7 +1048,7 @@ function VariantRow({ variant }: { variant: AdminVariant }) {
 
         <b>{variant.total_qty}</b>
         <span>{variant.reserved_qty}</span>
-        <b className={availableQty <= 4 ? 'ap-low-qty' : ''}>{availableQty}</b>
+        <b className={availableQty <= alertLimit(variant.alert_qty) ? 'ap-low-qty' : ''}>{availableQty}</b>
 
         <label className="ap-active-label">
           <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
@@ -1052,6 +1080,30 @@ function VariantRow({ variant }: { variant: AdminVariant }) {
           Провести движение
         </button>
       </div>
+
+)
+      {'alert_qty' in variant && (
+        <div className="ap-alert-row">
+          <span>Маячок: предупредить, когда доступно ≤</span>
+          <input
+            value={alertQty}
+            onChange={(e) => setAlertQty(e.target.value)}
+            type="number"
+            min={0}
+            placeholder={String(DEFAULT_ALERT_QTY)}
+            className="ap-input ap-alert-input"
+          />
+          <span>шт.</span>
+          <button
+            type="button"
+            onClick={handleSaveAlert}
+            disabled={isSaving || alertQty === (variant.alert_qty == null ? '' : String(variant.alert_qty))}
+            className="ap-small-action"
+          >
+            Сохранить маячок
+          </button>
+        </div>
+      )}
 
       {error   && <div className="ap-error">{error}</div>}
       {message && <div className="ap-success">{message}</div>}
@@ -1091,7 +1143,7 @@ function getProductStats(product: AdminProduct) {
   const active      = product.product_variants.filter((v) => v.is_active)
 
   const zeroVariants = active.filter((v) => Number(v.total_qty) - Number(v.reserved_qty) <= 0).length
-  const lowVariants  = active.filter((v) => { const a = Number(v.total_qty) - Number(v.reserved_qty); return a > 0 && a <= 4 }).length
+  const lowVariants  = active.filter((v) => isLowStock(Number(v.total_qty) - Number(v.reserved_qty), v.alert_qty)).length
 
   return { totalQty, reservedQty, availableQty: Math.max(0, totalQty - reservedQty), zeroVariants, lowVariants }
 }

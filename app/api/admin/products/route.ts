@@ -12,10 +12,12 @@ type AdminProductAction =
   | 'add_stock'
   | 'set_archived'
   | 'set_audience'
+  | 'set_alert_qty'
 
 type Payload = {
   archived?: boolean
   audience?: ProductAudience
+  alert_qty?: number | null
 
   action?: AdminProductAction
 
@@ -203,6 +205,30 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({ ok: true, product: data })
+    }
+
+    if (body.action === 'set_alert_qty') {
+      const alertQty = body.alert_qty === null || body.alert_qty === undefined ? null : Number(body.alert_qty)
+
+      if (!body.variant_id || (alertQty !== null && (!Number.isInteger(alertQty) || alertQty < 0))) {
+        return NextResponse.json(
+          { error: 'Порог маячка — целое число от 0 или пусто' },
+          { status: 400 }
+        )
+      }
+
+      const { data, error } = await supabase
+        .from('product_variants')
+        .update({ alert_qty: alertQty })
+        .eq('id', body.variant_id)
+        .select('id')
+        .single()
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+
+      return NextResponse.json({ ok: true, variant: data })
     }
 
     if (body.action === 'create_variant') {

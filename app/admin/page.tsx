@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation'
 import type { OrderStatus } from '@/lib/supabase/types'
 import { ADMIN_STATUS_OPTIONS, orderStatusLabel, statusTone } from '@/lib/orderStatus'
 import { formatTripRange, todayInTashkent } from '@/lib/trip'
+import { alertLimit, DEFAULT_ALERT_QTY, loadAlertMap } from '@/lib/stockAlerts'
 
 type TripTask = {
   id: string
@@ -126,6 +127,8 @@ export default async function AdminDashboardPage() {
 
   const uniqueEmployees = new Set(orders.map(o => o.employee_id)).size
 
+  // Маячки: у варианта может быть свой порог (merch-stock-alerts.sql), иначе 4 шт.
+  const alerts = await loadAlertMap(supabase)
   const lowStockVariants = products.flatMap(product =>
     product.product_variants
       .filter(v => v.is_active)
@@ -135,8 +138,9 @@ export default async function AdminDashboardPage() {
         size:         v.size,
         color:        v.color,
         availableQty: Math.max(0, Number(v.total_qty) - Number(v.reserved_qty)),
+        limit:        alertLimit(alerts?.get(v.id)),
       }))
-      .filter(v => v.availableQty <= 4)
+      .filter(v => v.availableQty <= v.limit)
   )
 
   const statusCounters = ADMIN_STATUS_OPTIONS.map(status => ({
@@ -160,7 +164,7 @@ export default async function AdminDashboardPage() {
       <section className="dash-kpi-grid">
         <KpiCard tone="primary"  label="Активных заказов"        value={String(activeOrders.length)}     hint={`из ${orders.length} всего`} />
         <KpiCard tone="default"  label="Новые за неделю"         value={String(newThisWeek.length)}      hint="заявки за последние 7 дней" />
-        <KpiCard tone="danger"   label="Позиций в дефиците"      value={String(lowStockVariants.length)} hint="≤ 4 шт. доступно" />
+        <KpiCard tone="danger"   label="Позиций в дефиците"      value={String(lowStockVariants.length)} hint={alerts ? 'ниже порога маячка' : `≤ ${DEFAULT_ALERT_QTY} шт. доступно`} />
         <KpiCard tone="default"  label="Сотрудников с заказами"  value={String(uniqueEmployees)}         hint="уникальных получателей" />
       </section>
 

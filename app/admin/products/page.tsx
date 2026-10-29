@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
+import { loadAlertMap } from '@/lib/stockAlerts'
 import AdminProductsClient, {
   type AdminCategory,
   type AdminProduct,
@@ -121,6 +122,15 @@ export default async function AdminProductsPage() {
   }
   const archiveReady = optional.includes('archived_at')
 
+  // Пороги маячков грузим отдельно: до merch-stock-alerts.sql колонки нет.
+  const alerts = await loadAlertMap(supabase)
+  const productsWithAlerts = ((products ?? []) as unknown as AdminProduct[]).map((product) => ({
+    ...product,
+    product_variants: product.product_variants.map((variant) =>
+      alerts ? { ...variant, alert_qty: alerts.get(variant.id) ?? null } : variant
+    ),
+  }))
+
   const { count: orderCount } = await supabase
     .from('orders')
     .select('id', { count: 'exact', head: true })
@@ -139,7 +149,7 @@ export default async function AdminProductsPage() {
 
   return (
     <AdminProductsClient
-      products={(products ?? []) as unknown as AdminProduct[]}
+      products={productsWithAlerts}
       archiveReady={archiveReady}
       categories={(categories ?? []) as AdminCategory[]}
       adminEmail={user.email ?? ''}

@@ -19,6 +19,7 @@ const navItems = [
   { key: 'stock',     href: '/admin/products',           label: 'Склад',   description: 'Остатки товаров',  icon: '▦' },
   { key: 'products',  href: '/admin/products?mode=cards',label: 'Товары',  description: 'Карточки и фото',  icon: '⌑' },
   { key: 'employees', href: '/admin/employees',          label: 'Сотрудники',  description: 'HR-реестр и доступ',      icon: 'HR' },
+  { key: 'analytics', href: '/admin/analytics',          label: 'Аналитика',    description: 'Выдача и маячки',     icon: '◔' },
   { key: 'welcome',   href: '/admin/welcome',            label: 'Welcome pack', description: 'Ссылки для новичков',  icon: '✦' },
 ]
 
@@ -90,7 +91,8 @@ export default function AdminShell({
               (item.key === 'stock'     && pathname === '/admin/products' && mode !== 'cards') ||
               (item.key === 'products'  && pathname === '/admin/products' && mode === 'cards') ||
               (item.key === 'employees' && pathname === '/admin/employees') ||
-              (item.key === 'welcome'   && pathname === '/admin/welcome')
+              (item.key === 'welcome'   && pathname === '/admin/welcome') ||
+              (item.key === 'analytics' && pathname === '/admin/analytics')
 
             const badge = getBadge(item.key)
 

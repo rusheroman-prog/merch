@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { countStockAlerts } from '@/lib/stockAlerts'
 import { needsPasswordSetup } from '@/lib/auth'
 import AdminEmployeesClient, { type DirectoryEmployee } from './AdminEmployeesClient'
 
@@ -54,7 +55,7 @@ export default async function AdminEmployeesPage() {
     )
   }
 
-  const [{ data: directoryData, error: directoryError }, { data: ordersData }, { data: productsForStock }] =
+  const [{ data: directoryData, error: directoryError }, { data: ordersData }, stockAlertCount] =
     await Promise.all([
       supabase
         .from('employee_directory')
@@ -63,9 +64,7 @@ export default async function AdminEmployeesPage() {
       supabase
         .from('orders')
         .select('id'),
-      supabase
-        .from('products')
-        .select('id, product_variants ( id, total_qty, reserved_qty, is_active )'),
+      countStockAlerts(supabase),
     ])
 
   if (directoryError) {
@@ -80,16 +79,6 @@ export default async function AdminEmployeesPage() {
     )
   }
 
-  const stockAlertCount =
-    productsForStock?.reduce((sum, product) => {
-      const variants = product.product_variants ?? []
-      const lowCount = variants.filter((variant) => {
-        if (!variant.is_active) return false
-        const available = Number(variant.total_qty) - Number(variant.reserved_qty)
-        return available > 0 && available <= 4
-      }).length
-      return sum + lowCount
-    }, 0) ?? 0
 
   return (
     <AdminEmployeesClient
