@@ -1,31 +1,10 @@
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { needsPasswordSetup } from '@/lib/auth'
-import CatalogClient, {
-  type CatalogProduct,
-  type CatalogVariant,
-} from './CatalogClient'
-
-type CatalogQueryVariant = {
-  id: string
-  size: string | null
-  color: string | null
-  sku: string | null
-  total_qty: number | null
-  reserved_qty: number | null
-  is_active: boolean | null
-}
-
-type CatalogQueryProduct = {
-  id: string
-  name: string
-  description: string | null
-  material: string | null
-  image_url: string | null
-  images: string[] | null
-  categories: { name: string | null } | Array<{ name: string | null }> | null
-  product_variants: CatalogQueryVariant[] | null
-}
+import { getWelcomeInvite, WELCOME_COOKIE } from '@/lib/welcome'
+import CatalogClient from './CatalogClient'
+import { loadCatalogData } from './loadCatalog'
 
 export default async function CatalogPage() {
   const supabase = await createClient()
@@ -42,64 +21,20 @@ export default async function CatalogPage() {
     redirect('/set-password')
   }
 
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('full_name, is_admin, phone, hired_at')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  // Профиля больше нет: телефон и адрес подставляем из последнего заказа,
-  // чтобы сотруднику не вводить их заново.
-  const { data: lastOrder } = await supabase
-    .from('orders')
-    .select('delivery_type, delivery_address, phone, country')
-    .eq('employee_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  const { data: settings } = await supabase
-    .from('merch_settings')
-    .select('handout_deadline, handout_place')
-    .eq('id', 1)
-    .maybeSingle()
-
   const { data: accessRows } = await supabase.rpc('get_employee_merch_access', {
     p_email: user.email ?? '',
   })
   const access = Array.isArray(accessRows) ? accessRows[0] : null
 
-  const lastWasPost = lastOrder?.delivery_type === 'post'
+  // Новичок пришёл по ссылке на welcome pack и уже вошёл: обычный каталог ему
+  // ещё недоступен (стаж), поэтому сразу ведём в его набор.
+  const welcomeToken = (await cookies()).get(WELCOME_COOKIE)?.value
+  if (welcomeToken && !access?.is_allowed) {
+    const invite = await getWelcomeInvite(supabase, welcomeToken)
+    if (invite?.status === 'ok') redirect('/welcome')
+  }
 
-  const { data, error } = await supabase
-    .from('products')
-    .select(
-      `
-      id,
-      name,
-      description,
-      material,
-      image_url,
-      images,
-      is_active,
-      categories (
-        id,
-        name,
-        sort
-      ),
-      product_variants (
-        id,
-        size,
-        color,
-        sku,
-        total_qty,
-        reserved_qty,
-        is_active
-      )
-    `
-    )
-    .eq('is_active', true)
-    .order('name', { ascending: true })
+  const { error, employee, props } = await loadCatalogData(supabase, user, 'catalog')
 
   if (error) {
     return (
@@ -107,63 +42,15 @@ export default async function CatalogPage() {
         <section className="error-card">
           <div className="error-card-icon">!</div>
           <h1 className="error-title">Не удалось загрузить каталог</h1>
-          <p className="error-text">{error.message}</p>
+          <p className="error-text">{error}</p>
         </section>
       </main>
     )
   }
 
-  const products: CatalogProduct[] = ((data ?? []) as CatalogQueryProduct[])
-    .map((product) => {
-      const variants: CatalogVariant[] = (product.product_variants ?? [])
-        .filter((variant) => variant.is_active)
-        .map((variant) => {
-          const totalQty = Number(variant.total_qty ?? 0)
-          const reservedQty = Number(variant.reserved_qty ?? 0)
-
-          return {
-            id: variant.id,
-            size: variant.size,
-            color: variant.color,
-            sku: variant.sku,
-            total_qty: totalQty,
-            reserved_qty: reservedQty,
-            available_qty: Math.max(0, totalQty - reservedQty),
-          }
-        })
-        .filter((variant: CatalogVariant) => variant.available_qty > 0)
-
-      return {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        material: product.material,
-        image_url: product.image_url,
-        images: Array.isArray(product.images) ? product.images : [],
-        category_name: Array.isArray(product.categories)
-          ? product.categories[0]?.name ?? null
-          : product.categories?.name ?? null,
-        variants,
-      }
-    })
-    .filter((product: CatalogProduct) => product.variants.length > 0)
-
   return (
     <CatalogClient
-      products={products}
-      userEmail={user.email ?? null}
-      userName={employee?.full_name ?? null}
-      isAdmin={Boolean(employee?.is_admin)}
-      checkoutDefaults={{
-        deliveryType: lastWasPost ? 'post' : 'office',
-        deliveryAddress: lastWasPost ? lastOrder?.delivery_address ?? '' : '',
-        phone: lastOrder?.phone ?? employee?.phone ?? '',
-        country: lastOrder?.country ?? '',
-      }}
-      handout={{
-        place: settings?.handout_place ?? null,
-        deadline: settings?.handout_deadline ?? null,
-      }}
+      {...props}
       merchAccess={{
         isAllowed: Boolean(access?.is_allowed),
         reason: access?.reason ?? 'employee_not_in_directory',

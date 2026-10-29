@@ -69,6 +69,8 @@ type CatalogClientProps = {
   checkoutDefaults: CheckoutDefaults
   handout: HandoutInfo
   merchAccess: MerchAccess
+  /** Режим welcome pack по спецссылке: только товары пака, свои правила. */
+  welcome?: { token: string } | null
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -105,6 +107,13 @@ const RULES = [
   'Доступно сотрудникам со стажем от 3 месяцев',
 ]
 
+const WELCOME_RULES = [
+  'По одной штуке каждого товара из набора',
+  'Выберите свой размер и цвет',
+  'Получение — в офисе или почтой для удалёнщиков',
+  'Ссылка одноразовая: после оформления набор закрепится за вами',
+]
+
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  CatalogClient                                                               */
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -117,7 +126,12 @@ export default function CatalogClient({
   checkoutDefaults,
   handout,
   merchAccess,
+  welcome = null,
 }: CatalogClientProps) {
+  // В welcome pack можно взять по одному каждому товару набора.
+  const maxUnique = welcome ? Math.max(1, products.length) : MAX_UNIQUE_PRODUCTS
+  const rules     = welcome ? WELCOME_RULES : RULES
+
   /* Cart */
   const [cart, setCart] = useState<CartItem[]>([])
 
@@ -214,8 +228,8 @@ export default function CatalogClient({
       setCheckoutError('Этот товар уже в корзине. Можно заказать только 1 единицу одного товара.')
       return
     }
-    if (cart.length >= MAX_UNIQUE_PRODUCTS) {
-      setCheckoutError(`Можно выбрать не больше ${MAX_UNIQUE_PRODUCTS} уникальных позиций.`)
+    if (cart.length >= maxUnique) {
+      setCheckoutError(`Можно выбрать не больше ${maxUnique} уникальных позиций.`)
       return
     }
     setCart(cur => [...cur, { product, variant, qty: 1 }])
@@ -232,8 +246,8 @@ export default function CatalogClient({
       setCheckoutError(getMerchAccessMessage(merchAccess))
       return
     }
-    if (cart.length > MAX_UNIQUE_PRODUCTS) {
-      setCheckoutError(`Можно выбрать не больше ${MAX_UNIQUE_PRODUCTS} уникальных позиций.`)
+    if (cart.length > maxUnique) {
+      setCheckoutError(`Можно выбрать не больше ${maxUnique} уникальных позиций.`)
       return
     }
     if (deliveryType === 'post' && (!country.trim() || !deliveryAddress.trim() || !phone.trim())) {
@@ -265,6 +279,7 @@ export default function CatalogClient({
           country:          deliveryType === 'post' ? country : null,
           trip_from:        deliveryType === 'trip' ? tripFrom : null,
           trip_to:          deliveryType === 'trip' ? tripTo : null,
+          welcome_token:    welcome?.token ?? null,
         }),
       })
 
@@ -299,7 +314,7 @@ export default function CatalogClient({
         <div className="site-head-glass" aria-hidden="true" />
         <div className="head-inner">
 
-          <a href="/catalog" className="brand">
+          <a href={welcome ? '/welcome' : '/catalog'} className="brand">
             <span className="brand-mark">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/uzum-big-logo.webp" alt="Uzum" />
@@ -309,7 +324,7 @@ export default function CatalogClient({
             </span>
           </a>
 
-          <AppNav isAdmin={isAdmin} />
+          <AppNav isAdmin={isAdmin} minimal={Boolean(welcome)} />
 
           <div className="head-side">
             {cart.length > 0 && (
@@ -411,7 +426,7 @@ export default function CatalogClient({
             <div className="filters-note">
               <span className="kicker">Правила</span>
               <ol className="rules-list">
-                {RULES.map((rule, index) => (
+                {rules.map((rule, index) => (
                   <li key={rule}>
                     <span className="rules-num">{index + 1}</span>
                     {rule}
@@ -429,10 +444,20 @@ export default function CatalogClient({
               </div>
             )}
 
+            {welcome && (
+              <div className="welcome-pack-banner">
+                <span className="kicker">Welcome pack</span>
+                <b>Добро пожаловать в Uzum!</b>
+                <span>
+                  Это ваш стартовый набор: выберите размер и цвет — по одной штуке каждого товара.
+                </span>
+              </div>
+            )}
+
             <div className="grid-head">
               <div className="grid-count">
                 Выбрано <span className="num">{cart.length}</span> из{' '}
-                <span className="num num-accent">{MAX_UNIQUE_PRODUCTS}</span>
+                <span className="num num-accent">{maxUnique}</span>
                 <span className="grid-count-mute">
                   {' '}· {filteredProducts.length}{' '}
                   {decline(filteredProducts.length, ['товар', 'товара', 'товаров'])}
@@ -473,7 +498,7 @@ export default function CatalogClient({
                       product={product}
                       preferredSize={size === ALL ? null : size}
                       isInCart={isProductInCart(product.id)}
-                      isBlocked={!merchAccess.isAllowed || cart.length >= MAX_UNIQUE_PRODUCTS}
+                      isBlocked={!merchAccess.isAllowed || cart.length >= maxUnique}
                       onAddToCart={addToCart}
                     />
                   ))
@@ -496,6 +521,7 @@ export default function CatalogClient({
                 checkoutError={checkoutError}
                 checkoutSuccess={checkoutSuccess}
                 merchAccess={merchAccess}
+                maxUnique={maxUnique}
                 onRemove={removeFromCart}
                 onDeliveryTypeChange={setDeliveryType}
                 onDeliveryAddressChange={setDeliveryAddress}
@@ -625,6 +651,7 @@ function CartAside({
   checkoutError,
   checkoutSuccess,
   merchAccess,
+  maxUnique,
   onRemove,
   onDeliveryTypeChange,
   onDeliveryAddressChange,
@@ -648,6 +675,7 @@ function CartAside({
   checkoutError: string | null
   checkoutSuccess: string | null
   merchAccess: MerchAccess
+  maxUnique: number
   onRemove: (variantId: string) => void
   onDeliveryTypeChange: (value: CheckoutChoice) => void
   onDeliveryAddressChange: (value: string) => void
@@ -663,8 +691,8 @@ function CartAside({
       <div className="cart-header">
         <p className="aside-title">Корзина</p>
         <span className="cart-limit">
-          {cart.length} / {MAX_UNIQUE_PRODUCTS}{' '}
-          {decline(MAX_UNIQUE_PRODUCTS, ['позиция', 'позиции', 'позиций'])}
+          {cart.length} / {maxUnique}{' '}
+          {decline(maxUnique, ['позиция', 'позиции', 'позиций'])}
         </span>
       </div>
 
@@ -676,7 +704,7 @@ function CartAside({
             <div className="cart-empty-mark">+</div>
             <p className="cart-empty-title">Пока пусто</p>
             <p className="cart-empty-text">
-              Добавьте до {MAX_UNIQUE_PRODUCTS} позиций из каталога.
+              Добавьте до {maxUnique} {decline(maxUnique, ['позиции', 'позиций', 'позиций'])} из каталога.
             </p>
           </div>
           {checkoutError && <div className="form-error">{checkoutError}</div>}
@@ -981,6 +1009,12 @@ function getCheckoutErrorMessage(error: string): string {
     return 'Этот способ получения пока недоступен. Выберите «В офисе» или «Почтой BTS».'
   if (error.includes('post_details_required'))
     return 'Для отправки почтой укажите страну, адрес и телефон.'
+  if (error.includes('welcome_invite_used'))
+    return 'Welcome pack по этой ссылке уже оформлен. Проверьте раздел «Мои заказы».'
+  if (error.includes('welcome_invite_expired') || error.includes('welcome_invite_not_found'))
+    return 'Ссылка на welcome pack недействительна. Попросите онбординг-менеджера прислать новую.'
+  if (error.includes('welcome_invite_wrong_email'))
+    return 'Ссылка выдана на другой email. Войдите под корпоративным адресом из приглашения.'
   if (error.includes('trip_dates_required'))
     return 'Укажите даты, когда вы будете в Ташкенте.'
   if (error.includes('trip_dates_invalid'))

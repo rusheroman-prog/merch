@@ -4,6 +4,13 @@ import AdminShell from '@/components/AdminShell'
 import ProductImage from '@/components/ProductImage'
 import ProductImageUploader from '@/components/ProductImageUploader'
 import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
+import type { ProductAudience } from '@/lib/supabase/types'
+
+const AUDIENCE_LABELS: Record<ProductAudience, string> = {
+  catalog: 'Только каталог',
+  welcome: 'Только welcome pack',
+  both:    'Каталог и welcome pack',
+}
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 
@@ -36,6 +43,8 @@ export type AdminProduct = {
   images: string[]
   is_active: boolean
   archived_at?: string | null
+  /** Есть только после миграции merch-welcome-pack.sql */
+  audience?: ProductAudience
   created_at: string
   updated_at: string
   categories: AdminCategory | AdminCategory[] | null
@@ -584,6 +593,9 @@ function ProductRow({
           <span>{getCategoryName(product)}</span>
           <b>{product.name}</b>
           {!product.is_active && <small>Отключён</small>}
+          {product.audience && product.audience !== 'catalog' && (
+            <small>{product.audience === 'welcome' ? 'Welcome pack' : '+ Welcome pack'}</small>
+          )}
         </div>
 
         <Metric label="Всего на складе"    value={`${stats.totalQty} шт.`} />
@@ -728,6 +740,7 @@ function ProductMainEditor({
   const [categoryId,  setCategoryId]  = useState(product.category_id ?? '')
   const [imageUrl,    setImageUrl]    = useState(product.image_url ?? '')
   const [isActive,    setIsActive]    = useState(product.is_active)
+  const [audience,    setAudience]    = useState<ProductAudience>(product.audience ?? 'catalog')
   const [isSaving,    setIsSaving]    = useState(false)
   const [message,     setMessage]     = useState<string | null>(null)
   const [error,       setError]       = useState<string | null>(null)
@@ -751,6 +764,20 @@ function ProductMainEditor({
 
       const result = await response.json()
       if (!response.ok) { setError(result.error || 'Не удалось обновить товар'); return }
+
+      // Аудитория — отдельным действием, чтобы update_product работал и до миграции.
+      if (product.audience && audience !== product.audience) {
+        const audienceResponse = await fetch('/api/admin/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'set_audience', product_id: product.id, audience }),
+        })
+        if (!audienceResponse.ok) {
+          const audienceResult = await audienceResponse.json()
+          setError(audienceResult.error || 'Не удалось сохранить, где показывать товар')
+          return
+        }
+      }
 
       setMessage('Товар обновлён')
       router.refresh()
@@ -802,6 +829,17 @@ function ProductMainEditor({
           Материал
           <input value={material} onChange={(e) => setMaterial(e.target.value)} className="ap-input" />
         </label>
+
+        {product.audience && (
+          <label className="ap-label">
+            Где показывать
+            <select value={audience} onChange={(e) => setAudience(e.target.value as ProductAudience)} className="ap-input">
+              {(Object.keys(AUDIENCE_LABELS) as ProductAudience[]).map((key) => (
+                <option key={key} value={key}>{AUDIENCE_LABELS[key]}</option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <div className="ap-label-wide">
           <ProductImageUploader value={imageUrl} onChange={setImageUrl} productId={product.id} label="IMAGE_URL" />

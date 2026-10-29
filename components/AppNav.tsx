@@ -8,6 +8,8 @@ type AppNavProps = {
   isAdmin?: boolean
   /** When true, renders a "Выйти" button alongside the nav links (default: false). */
   showLogout?: boolean
+  /** Welcome pack по спецссылке: остальной каталог новичку не показываем. */
+  minimal?: boolean
 }
 
 type NavItem = {
@@ -17,10 +19,15 @@ type NavItem = {
   match?: string
 }
 
+// Welcome pack в меню нет: он открывается только по ссылке от онбординг-менеджера.
 const navItems: NavItem[] = [
-  { href: '/catalog', label: 'Каталог'      },
+  { href: '/catalog', label: 'Каталог'    },
+  { href: '/orders',  label: 'Мои заказы' },
+]
+
+const minimalItems: NavItem[] = [
+  { href: '/welcome', label: 'Welcome pack' },
   { href: '/orders',  label: 'Мои заказы'   },
-  { href: '/welcome', label: 'Welcome-pack' },
 ]
 
 // Админ-панель — сразу дашборд; разделы админки открываются из её боковой навигации.
@@ -29,6 +36,7 @@ const adminItem: NavItem = { href: '/admin', label: 'Админ-панель', m
 export default function AppNav({
   isAdmin    = false,
   showLogout = false,
+  minimal    = false,
 }: AppNavProps) {
   const pathname = usePathname()
   const [loggingOut, setLoggingOut] = useState(false)
@@ -47,7 +55,8 @@ export default function AppNav({
     }
   }
 
-  const items = isAdmin ? [...navItems, adminItem] : navItems
+  const baseItems = minimal ? minimalItems : navItems
+  const items = isAdmin ? [...baseItems, adminItem] : baseItems
 
   return (
     <nav className="head-nav">

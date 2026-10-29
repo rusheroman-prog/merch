@@ -74,7 +74,7 @@ export default async function AdminProductsPage() {
     )
   }
 
-  const loadProducts = (withArchive: boolean) => supabase
+  const loadProducts = (optional: string[]) => supabase
     .from('products')
     .select(
       `
@@ -86,7 +86,7 @@ export default async function AdminProductsPage() {
       image_url,
       images,
       is_active,
-      ${withArchive ? 'archived_at,' : ''}
+      ${optional.map((column) => `${column},`).join(' ')}
       created_at,
       updated_at,
       categories (
@@ -110,13 +110,16 @@ export default async function AdminProductsPage() {
     )
     .order('name', { ascending: true })
 
-  // До миграции merch-product-archive.sql колонки archived_at нет —
-  // тогда показываем товары без архива, а не ошибку.
-  let { data: products, error: productsError } = await loadProducts(true)
-  const archiveReady = !productsError?.message.includes('archived_at')
-  if (!archiveReady) {
-    ({ data: products, error: productsError } = await loadProducts(false))
+  // archived_at и audience появляются миграциями merch-product-archive.sql и
+  // merch-welcome-pack.sql. Пока какой-то нет — убираем её из запроса и
+  // показываем страницу без соответствующей функции, а не ошибку.
+  let optional = ['archived_at', 'audience']
+  let { data: products, error: productsError } = await loadProducts(optional)
+  while (productsError && optional.some((column) => productsError!.message.includes(column))) {
+    optional = optional.filter((column) => !productsError!.message.includes(column))
+    ;({ data: products, error: productsError } = await loadProducts(optional))
   }
+  const archiveReady = optional.includes('archived_at')
 
   const { count: orderCount } = await supabase
     .from('orders')

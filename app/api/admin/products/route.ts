@@ -1,5 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { ProductAudience } from '@/lib/supabase/types'
+
+const AUDIENCES: ProductAudience[] = ['catalog', 'welcome', 'both']
 
 type AdminProductAction =
   | 'create_product'
@@ -8,9 +11,11 @@ type AdminProductAction =
   | 'update_variant'
   | 'add_stock'
   | 'set_archived'
+  | 'set_audience'
 
 type Payload = {
   archived?: boolean
+  audience?: ProductAudience
 
   action?: AdminProductAction
 
@@ -167,6 +172,28 @@ export async function POST(request: NextRequest) {
             ? { archived_at: new Date().toISOString(), is_active: false }
             : { archived_at: null }
         )
+        .eq('id', body.product_id)
+        .select('id')
+        .single()
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+
+      return NextResponse.json({ ok: true, product: data })
+    }
+
+    if (body.action === 'set_audience') {
+      if (!body.product_id || !body.audience || !AUDIENCES.includes(body.audience)) {
+        return NextResponse.json(
+          { error: 'Некорректные параметры' },
+          { status: 400 }
+        )
+      }
+
+      const { data, error } = await supabase
+        .from('products')
+        .update({ audience: body.audience })
         .eq('id', body.product_id)
         .select('id')
         .single()

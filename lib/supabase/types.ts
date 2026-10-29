@@ -21,6 +21,11 @@ export type DeliveryType = 'office' | 'post' | 'pvz' | 'pickup' | 'courier'
 /** Способы получения, которые сейчас принимает оформление заказа. */
 export const ACTIVE_DELIVERY_TYPES: DeliveryType[] = ['office', 'post']
 
+/** Где показывать товар: обычный каталог, welcome pack по спецссылке или оба. */
+export type ProductAudience = 'catalog' | 'welcome' | 'both'
+
+export type WelcomeInviteStatus = 'ok' | 'not_found' | 'used' | 'expired' | 'wrong_email'
+
 export type MovementType =
   | 'income'
   | 'reserve'
@@ -152,6 +157,7 @@ export type Database = {
           images:      string[]
           is_active:   boolean
           archived_at: string | null
+          audience:    ProductAudience
           created_at:  string
           updated_at:  string
         }
@@ -165,6 +171,7 @@ export type Database = {
           images?:      string[]
           is_active?:   boolean
           archived_at?: string | null
+          audience?:    ProductAudience
         }
         Update: Partial<Database['public']['Tables']['products']['Insert']>
         Relationships: [
@@ -286,6 +293,7 @@ export type Database = {
           country:          string | null
           trip_from:        string | null
           trip_to:          string | null
+          is_welcome:       boolean
           created_at:       string
           confirmed_at:     string | null
           shipped_at:       string | null
@@ -333,6 +341,29 @@ export type Database = {
         Relationships: [
           Rel<'orders_employee_id_fkey', ['employee_id'], 'employees', ['id']>,
         ]
+      }
+      welcome_invites: {
+        Row: {
+          id:            string
+          token:         string
+          email:         string
+          full_name:     string | null
+          note:          string | null
+          created_by:    string | null
+          created_at:    string
+          expires_at:    string
+          used_at:       string | null
+          used_order_id: string | null
+        }
+        Insert: {
+          email:       string
+          full_name?:  string | null
+          note?:       string | null
+          created_by?: string | null
+          expires_at?: string
+        }
+        Update: Partial<Database['public']['Tables']['welcome_invites']['Insert']>
+        Relationships: never[]
       }
       merch_settings: {
         Row: {
@@ -451,6 +482,23 @@ export type Database = {
           p_status:          OrderStatus
           p_admin_comment:   string | null
           p_tracking_number: string | null
+        }
+        Returns: unknown
+      }
+      get_welcome_invite: {
+        Args: { p_token: string }
+        Returns: { status: WelcomeInviteStatus; order_number: string | null }[]
+      }
+      create_welcome_order: {
+        Args: {
+          p_token:            string
+          p_items:            { variant_id: string; qty: number }[]
+          p_delivery_type:    DeliveryType
+          p_delivery_address: string | null
+          p_phone:            string | null
+          p_comment:          string | null
+          p_is_remote:        boolean
+          p_country:          string | null
         }
         Returns: unknown
       }

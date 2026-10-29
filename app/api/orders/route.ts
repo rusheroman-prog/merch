@@ -19,6 +19,8 @@ type CheckoutPayload = {
   /** Удалёнщик в командировке забирает в офисе Ташкента в эти даты. */
   trip_from?: string | null
   trip_to?: string | null
+  /** Токен спецссылки welcome pack: свои правила вместо обычных. */
+  welcome_token?: string | null
 }
 
 const MAX_UNIQUE_PRODUCTS = 3
@@ -74,22 +76,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { data: accessRows, error: accessError } = await supabase.rpc(
-      'get_employee_merch_access',
-      { p_email: user.email ?? '' }
-    )
+    // Welcome pack: стаж и лимит в 3 позиции не действуют — приглашение,
+    // email и состав набора проверяет create_welcome_order.
+    const welcomeToken = body.welcome_token?.trim() || null
 
-    if (accessError) {
-      return NextResponse.json({ error: accessError.message }, { status: 400 })
-    }
-
-    const access = Array.isArray(accessRows) ? accessRows[0] : null
-
-    if (!access?.is_allowed) {
-      return NextResponse.json(
-        { error: access?.reason ?? 'employee_not_allowed' },
-        { status: 403 }
+    if (!welcomeToken) {
+      const { data: accessRows, error: accessError } = await supabase.rpc(
+        'get_employee_merch_access',
+        { p_email: user.email ?? '' }
       )
+
+      if (accessError) {
+        return NextResponse.json({ error: accessError.message }, { status: 400 })
+      }
+
+      const access = Array.isArray(accessRows) ? accessRows[0] : null
+
+      if (!access?.is_allowed) {
+        return NextResponse.json(
+          { error: access?.reason ?? 'employee_not_allowed' },
+          { status: 403 }
+        )
+      }
     }
 
     const variantIds = items.map((item) => item.variant_id)
@@ -108,8 +116,21 @@ export async function POST(request: NextRequest) {
 
     const uniqueProductIds = new Set((variants ?? []).map((variant) => variant.product_id))
 
-    if (uniqueProductIds.size > MAX_UNIQUE_PRODUCTS) {
-      return NextResponse.json({ error: 'max_unique_products_exceeded' }, { status: 400 })
+    if (!welcomeToken) {
+      if (uniqueProductIds.size > MAX_UNIQUE_PRODUCTS) {
+        return NextResponse.json({ error: 'max_unique_products_exceeded' }, { status: 400 })
+      }
+
+      // Товары только для welcome pack в обычном заказе недоступны.
+      // До миграции колонки audience нет — тогда проверку пропускаем.
+      const { data: audienceRows, error: audienceError } = await supabase
+        .from('products')
+        .select('id, audience')
+        .in('id', Array.from(uniqueProductIds))
+
+      if (!audienceError && (audienceRows ?? []).some((row) => row.audience === 'welcome')) {
+        return NextResponse.json({ error: 'product_is_not_available' }, { status: 400 })
+      }
     }
 
     if (uniqueProductIds.size !== items.length) {
@@ -147,9 +168,10 @@ export async function POST(request: NextRequest) {
     const tripNote = isTrip
       ? `Командировка в Ташкент: ${formatTripRange(body.trip_from!, body.trip_to!)}`
       : null
-    const comment = [tripNote, body.comment?.trim()].filter(Boolean).join('\n') || null
+    const comment = [welcomeToken ? 'Welcome pack' : null, tripNote, body.comment?.trim()]
+      .filter(Boolean).join('\n') || null
 
-    const { data, error } = await supabase.rpc('create_merch_order', {
+    const orderArgs = {
       p_items: items,
       p_delivery_type: deliveryType,
       p_delivery_address: deliveryAddress,
@@ -157,7 +179,11 @@ export async function POST(request: NextRequest) {
       p_comment: comment,
       p_is_remote: isRemote,
       p_country: country,
-    })
+    }
+
+    const { data, error } = welcomeToken
+      ? await supabase.rpc('create_welcome_order', { ...orderArgs, p_token: welcomeToken })
+      : await supabase.rpc('create_merch_order', orderArgs)
 
     if (error) {
       return NextResponse.json(
