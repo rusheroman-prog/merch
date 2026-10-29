@@ -111,10 +111,10 @@ export default async function AdminProductsPage() {
     )
     .order('name', { ascending: true })
 
-  // archived_at и audience появляются миграциями merch-product-archive.sql и
-  // merch-welcome-pack.sql. Пока какой-то нет — убираем её из запроса и
+  // archived_at, audience и segment появляются миграциями merch-product-archive.sql,
+  // merch-welcome-pack.sql и merch-segments-holds.sql. Пока какой-то нет — убираем её из запроса и
   // показываем страницу без соответствующей функции, а не ошибку.
-  let optional = ['archived_at', 'audience']
+  let optional = ['archived_at', 'audience', 'segment']
   let { data: products, error: productsError } = await loadProducts(optional)
   while (productsError && optional.some((column) => productsError!.message.includes(column))) {
     optional = optional.filter((column) => !productsError!.message.includes(column))

@@ -6,6 +6,8 @@ import { needsPasswordSetup } from '@/lib/auth'
 import { alertLimit, isLowStock, loadAlertMap } from '@/lib/stockAlerts'
 import type { DeliveryType, OrderStatus } from '@/lib/supabase/types'
 import { decline } from '@/lib/utils'
+import { matchesSegment, parseSegmentFilter, SEGMENT_LABELS, SEGMENTS, type SegmentFilter } from '@/lib/segments'
+import type { ProductSegment } from '@/lib/supabase/types'
 
 /**
  * Аналитика: сколько мерча выдали за период, что осталось с учётом размеров,
@@ -37,6 +39,7 @@ type AnalyticsProduct = {
   id: string
   name: string
   is_active: boolean
+  segment?: ProductSegment | null
   product_variants: {
     id: string
     size: string | null
@@ -50,7 +53,7 @@ type AnalyticsProduct = {
 export default async function AdminAnalyticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>
+  searchParams: Promise<{ period?: string; segment?: string }>
 }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -64,24 +67,49 @@ export default async function AdminAnalyticsPage({
     .maybeSingle()
   if (!employee?.is_admin) redirect('/catalog')
 
-  const requested = (await searchParams).period
-  const period = PERIODS.find((p) => p.key === requested) ?? PERIODS[1]
+  const params = await searchParams
+  const period = PERIODS.find((p) => p.key === params.period) ?? PERIODS[1]
+  const segment = parseSegmentFilter(params.segment)
+  const hrefFor = (next: { period?: string; segment?: SegmentFilter }) => {
+    const query = new URLSearchParams()
+    const p = next.period ?? period.key
+    const sg = next.segment ?? segment
+    if (p !== '30') query.set('period', p)
+    if (sg !== 'all') query.set('segment', sg)
+    const qs = query.toString()
+    return qs ? `/admin/analytics?${qs}` : '/admin/analytics'
+  }
   const since = period.days === null ? null : Date.now() - period.days * 86_400_000
   const inPeriod = (value: string | null) => value !== null && (since === null || new Date(value).getTime() >= since)
 
-  const [{ data: ordersData }, { data: productsData }, alerts] = await Promise.all([
+  const loadProducts = (withSegment: boolean) => supabase
+    .from('products')
+    .select(`id, name, is_active, ${withSegment ? 'segment,' : ''} product_variants ( id, size, color, total_qty, reserved_qty, is_active )`)
+    .order('name', { ascending: true })
+
+  const [{ data: ordersData }, productsResult, alerts] = await Promise.all([
     supabase
       .from('orders')
       .select('id, status, delivery_type, is_remote, employee_id, created_at, received_at, order_items ( variant_id, product_id, qty )'),
-    supabase
-      .from('products')
-      .select('id, name, is_active, product_variants ( id, size, color, total_qty, reserved_qty, is_active )')
-      .order('name', { ascending: true }),
+    loadProducts(true),
     loadAlertMap(supabase),
   ])
 
-  const orders   = (ordersData ?? []) as unknown as AnalyticsOrder[]
-  const products = (productsData ?? []) as unknown as AnalyticsProduct[]
+  // До merch-segments-holds.sql колонки segment нет — работаем без переключателя.
+  const segmentsReady = !productsResult.error
+  const { data: productsData } = segmentsReady ? productsResult : await loadProducts(false)
+
+  const allOrders = (ordersData ?? []) as unknown as AnalyticsOrder[]
+  const products  = ((productsData ?? []) as unknown as AnalyticsProduct[])
+    .filter((p) => !segmentsReady || matchesSegment(p.segment, segment))
+
+  // В выбранном сегменте считаем только заказы с его товарами.
+  const productIds = new Set(products.map((p) => p.id))
+  const orders = segment === 'all'
+    ? allOrders
+    : allOrders
+        .map((o) => ({ ...o, order_items: (o.order_items ?? []).filter((i) => productIds.has(i.product_id)) }))
+        .filter((o) => o.order_items.length > 0)
 
   // Выдано = заказ получен в выбранный период.
   const handedOrders = orders.filter((o) => o.status === 'received' && inPeriod(o.received_at ?? o.created_at))
@@ -156,7 +184,7 @@ export default async function AdminAnalyticsPage({
       adminEmail={employee.email || user.email || 'admin'}
       title="Аналитика"
       subtitle={`Выдача и остатки · ${period.label.toLowerCase()}`}
-      orderCount={orders.length}
+      orderCount={allOrders.length}
       stockAlertCount={allVariants.filter((v) => isLowStock(v.available, alerts?.get(v.id))).length}
     >
       {/* ── Период ── */}
@@ -164,13 +192,27 @@ export default async function AdminAnalyticsPage({
         {PERIODS.map((p) => (
           <Link
             key={p.key}
-            href={p.key === '30' ? '/admin/analytics' : `/admin/analytics?period=${p.key}`}
+            href={hrefFor({ period: p.key })}
             className={`an-period${p.key === (period.key as PeriodKey) ? ' an-period-active' : ''}`}
           >
             {p.label}
           </Link>
         ))}
       </nav>
+
+      {segmentsReady && (
+        <nav className="an-periods" aria-label="Сегмент">
+          {(['all', 'common', ...SEGMENTS] as SegmentFilter[]).map((key) => (
+            <Link
+              key={key}
+              href={hrefFor({ segment: key })}
+              className={`an-period${segment === key ? ' an-period-active' : ''}`}
+            >
+              {key === 'all' ? 'Все сегменты' : key === 'common' ? 'Общие' : SEGMENT_LABELS[key]}
+            </Link>
+          ))}
+        </nav>
+      )}
 
       {/* ── KPI ── */}
       <section className="dash-kpi-grid">

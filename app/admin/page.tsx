@@ -18,6 +18,26 @@ type TripTask = {
   trip_to: string
 }
 
+type HoldTask = {
+  id: string
+  order_number: string
+  full_name: string | null
+  email: string | null
+  pickup_status: string | null
+  hold_until: string
+}
+
+/** Задача на дашборде: отдать мерч сотруднику до даты. */
+type DeadlineTask = {
+  id: string
+  order_number: string
+  name: string
+  deadline: string
+  detail: string
+}
+
+const DONE_PICKUP = ['handed_owner', 'handed_other', 'refused']
+
 type AdminDashOrderItem = {
   id: string
   product_name: string
@@ -109,9 +129,33 @@ export default async function AdminDashboardPage() {
     .not('status', 'in', '(received,cancelled,rejected)')
     .order('trip_to', { ascending: true })
 
-  const tripTasks = ((tripRows ?? []) as TripTask[]).filter(
-    t => !['handed_owner', 'handed_other', 'refused'].includes(t.pickup_status ?? '')
-  )
+  // Ручные резервы «до даты» (merch-segments-holds.sql) — те же задачи.
+  const { data: holdRows } = await supabase
+    .from('orders')
+    .select('id, order_number, full_name, email, pickup_status, hold_until')
+    .not('hold_until', 'is', null)
+    .not('status', 'in', '(received,cancelled,rejected)')
+
+  const tasks: DeadlineTask[] = [
+    ...((tripRows ?? []) as TripTask[])
+      .filter(t => !DONE_PICKUP.includes(t.pickup_status ?? ''))
+      .map(t => ({
+        id: t.id,
+        order_number: t.order_number,
+        name: t.full_name || t.email || 'сотруднику',
+        deadline: t.trip_to,
+        detail: `в Ташкенте ${formatTripRange(t.trip_from, t.trip_to)}`,
+      })),
+    ...((holdRows ?? []) as HoldTask[])
+      .filter(t => !DONE_PICKUP.includes(t.pickup_status ?? ''))
+      .map(t => ({
+        id: t.id,
+        order_number: t.order_number,
+        name: t.full_name || t.email || 'сотруднику',
+        deadline: t.hold_until,
+        detail: 'ручной резерв',
+      })),
+  ].sort((a, b) => a.deadline.localeCompare(b.deadline))
   const today = todayInTashkent()
 
   const orders   = ((ordersData   ?? []) as unknown) as AdminDashOrder[]
@@ -181,16 +225,16 @@ export default async function AdminDashboardPage() {
         />
       </section>
 
-      {/* ── Задачи: командировки ── */}
-      {tripTasks.length > 0 && (
+      {/* ── Задачи: командировки и ручные резервы ── */}
+      {tasks.length > 0 && (
         <section className="dash-card">
           <div className="dash-card-head">
-            <h2 className="dash-card-title">Задачи · командировки</h2>
-            <span className="dash-card-link">{tripTasks.length} к выдаче</span>
+            <h2 className="dash-card-title">Задачи · выдать до даты</h2>
+            <span className="dash-card-link">{tasks.length} к выдаче</span>
           </div>
           <div className="dash-recent-list">
-            {tripTasks.map(task => {
-              const due = getDueTag(task.trip_to, today)
+            {tasks.map(task => {
+              const due = getDueTag(task.deadline, today)
               return (
                 <a
                   key={task.id}
@@ -199,10 +243,9 @@ export default async function AdminDashboardPage() {
                 >
                   <div>
                     <b>
-                      Отдать мерч {task.full_name || task.email || 'сотруднику'} до{' '}
-                      {formatTripRange(task.trip_to, task.trip_to)}
+                      Отдать мерч {task.name} до {formatTripRange(task.deadline, task.deadline)}
                     </b>
-                    <span>#{task.order_number} · в Ташкенте {formatTripRange(task.trip_from, task.trip_to)}</span>
+                    <span>#{task.order_number} · {task.detail}</span>
                   </div>
                   <span className={`dash-badge dash-badge-${due.tone}`}>{due.label}</span>
                 </a>

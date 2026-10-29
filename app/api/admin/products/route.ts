@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import type { ProductAudience } from '@/lib/supabase/types'
+import type { ProductAudience, ProductSegment } from '@/lib/supabase/types'
+import { SEGMENTS } from '@/lib/segments'
 
 const AUDIENCES: ProductAudience[] = ['catalog', 'welcome', 'both']
 
@@ -13,11 +14,13 @@ type AdminProductAction =
   | 'set_archived'
   | 'set_audience'
   | 'set_alert_qty'
+  | 'set_segment'
 
 type Payload = {
   archived?: boolean
   audience?: ProductAudience
   alert_qty?: number | null
+  segment?: ProductSegment | null
 
   action?: AdminProductAction
 
@@ -196,6 +199,30 @@ export async function POST(request: NextRequest) {
       const { data, error } = await supabase
         .from('products')
         .update({ audience: body.audience })
+        .eq('id', body.product_id)
+        .select('id')
+        .single()
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+
+      return NextResponse.json({ ok: true, product: data })
+    }
+
+    if (body.action === 'set_segment') {
+      const segment = body.segment ?? null
+
+      if (!body.product_id || (segment !== null && !SEGMENTS.includes(segment))) {
+        return NextResponse.json(
+          { error: 'Некорректные параметры' },
+          { status: 400 }
+        )
+      }
+
+      const { data, error } = await supabase
+        .from('products')
+        .update({ segment })
         .eq('id', body.product_id)
         .select('id')
         .single()

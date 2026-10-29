@@ -24,6 +24,9 @@ export const ACTIVE_DELIVERY_TYPES: DeliveryType[] = ['office', 'post']
 /** Где показывать товар: обычный каталог, welcome pack по спецссылке или оба. */
 export type ProductAudience = 'catalog' | 'welcome' | 'both'
 
+/** Сегмент товара для разделения в админке; null — общий. */
+export type ProductSegment = 'sale' | 'fintech' | 'ecom' | 'holding'
+
 export type WelcomeInviteStatus = 'ok' | 'not_found' | 'used' | 'expired' | 'wrong_email'
 
 export type MovementType =
@@ -158,6 +161,7 @@ export type Database = {
           is_active:   boolean
           archived_at: string | null
           audience:    ProductAudience
+          segment:     ProductSegment | null
           created_at:  string
           updated_at:  string
         }
@@ -172,6 +176,7 @@ export type Database = {
           is_active?:   boolean
           archived_at?: string | null
           audience?:    ProductAudience
+          segment?:     ProductSegment | null
         }
         Update: Partial<Database['public']['Tables']['products']['Insert']>
         Relationships: [
@@ -296,6 +301,7 @@ export type Database = {
           trip_from:        string | null
           trip_to:          string | null
           is_welcome:       boolean
+          hold_until:       string | null
           created_at:       string
           confirmed_at:     string | null
           shipped_at:       string | null
@@ -484,6 +490,16 @@ export type Database = {
           p_status:          OrderStatus
           p_admin_comment:   string | null
           p_tracking_number: string | null
+        }
+        Returns: unknown
+      }
+      admin_create_hold: {
+        Args: {
+          p_employee_email: string
+          p_variant_ids:    string[]
+          p_hold_until:     string
+          p_delivery_type:  DeliveryType
+          p_note:           string | null
         }
         Returns: unknown
       }

@@ -4,7 +4,9 @@ import AdminShell from '@/components/AdminShell'
 import ProductImage from '@/components/ProductImage'
 import ProductImageUploader from '@/components/ProductImageUploader'
 import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
-import type { ProductAudience } from '@/lib/supabase/types'
+import type { ProductAudience, ProductSegment } from '@/lib/supabase/types'
+import { matchesSegment, SEGMENT_LABELS, SEGMENTS, type SegmentFilter } from '@/lib/segments'
+import { todayInTashkent } from '@/lib/trip'
 import { alertLimit, DEFAULT_ALERT_QTY, isLowStock } from '@/lib/stockAlerts'
 
 const AUDIENCE_LABELS: Record<ProductAudience, string> = {
@@ -48,6 +50,8 @@ export type AdminProduct = {
   archived_at?: string | null
   /** Есть только после миграции merch-welcome-pack.sql */
   audience?: ProductAudience
+  /** Есть только после миграции merch-segments-holds.sql */
+  segment?: ProductSegment | null
   created_at: string
   updated_at: string
   categories: AdminCategory | AdminCategory[] | null
@@ -74,10 +78,14 @@ export default function AdminProductsClient({
   archiveReady,
 }: Props) {
   const [view, setView] = useState<ListView>('current')
+  const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>('all')
+  const segmentsReady = allProducts.some((p) => 'segment' in p)
   const archivedCount = allProducts.filter((p) => p.archived_at).length
   const products = useMemo(
-    () => allProducts.filter((p) => Boolean(p.archived_at) === (view === 'archive')),
-    [allProducts, view]
+    () => allProducts.filter((p) =>
+      Boolean(p.archived_at) === (view === 'archive') && matchesSegment(p.segment, segmentFilter)
+    ),
+    [allProducts, view, segmentFilter]
   )
 
   const searchParams  = useSearchParams()
@@ -200,6 +208,22 @@ export default function AdminProductsClient({
             >
               Архив <span>{archivedCount}</span>
             </button>
+          </section>
+        )}
+
+        {/* Segment switch: на продажу / финтех / еком / холдинг */}
+        {segmentsReady && (
+          <section className="ap-view-tabs" aria-label="Сегмент">
+            {(['all', 'common', ...SEGMENTS] as SegmentFilter[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSegmentFilter(key)}
+                className={`ap-view-tab${segmentFilter === key ? ' ap-view-tab-active' : ''}`}
+              >
+                {key === 'all' ? 'Все сегменты' : key === 'common' ? 'Общие' : SEGMENT_LABELS[key]}
+              </button>
+            ))}
           </section>
         )}
 
@@ -744,6 +768,7 @@ function ProductMainEditor({
   const [imageUrl,    setImageUrl]    = useState(product.image_url ?? '')
   const [isActive,    setIsActive]    = useState(product.is_active)
   const [audience,    setAudience]    = useState<ProductAudience>(product.audience ?? 'catalog')
+  const [segment,     setSegment]     = useState<ProductSegment | ''>(product.segment ?? '')
   const [isSaving,    setIsSaving]    = useState(false)
   const [message,     setMessage]     = useState<string | null>(null)
   const [error,       setError]       = useState<string | null>(null)
@@ -778,6 +803,19 @@ function ProductMainEditor({
         if (!audienceResponse.ok) {
           const audienceResult = await audienceResponse.json()
           setError(audienceResult.error || 'Не удалось сохранить, где показывать товар')
+          return
+        }
+      }
+
+      if ('segment' in product && (segment || null) !== (product.segment ?? null)) {
+        const segmentResponse = await fetch('/api/admin/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'set_segment', product_id: product.id, segment: segment || null }),
+        })
+        if (!segmentResponse.ok) {
+          const segmentResult = await segmentResponse.json()
+          setError(segmentResult.error || 'Не удалось сохранить сегмент')
           return
         }
       }
@@ -832,6 +870,16 @@ function ProductMainEditor({
           Материал
           <input value={material} onChange={(e) => setMaterial(e.target.value)} className="ap-input" />
         </label>
+
+        {'segment' in product && (
+          <label className="ap-label">
+            Сегмент
+            <select value={segment} onChange={(e) => setSegment(e.target.value as ProductSegment | '')} className="ap-input">
+              <option value="">Общий</option>
+              {SEGMENTS.map((key) => <option key={key} value={key}>{SEGMENT_LABELS[key]}</option>)}
+            </select>
+          </label>
+        )}
 
         {product.audience && (
           <label className="ap-label">
@@ -946,7 +994,7 @@ function VariantsEditor({ product }: { product: AdminProduct }) {
             <div>Действия</div>
           </div>
           {sortedVariants.map((variant) => (
-            <VariantRow key={variant.id} variant={variant} />
+            <VariantRow key={variant.id} variant={variant} holdsReady={'segment' in product} />
           ))}
         </div>
       )}
@@ -958,7 +1006,7 @@ function VariantsEditor({ product }: { product: AdminProduct }) {
 /*  VariantRow                                                                   */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-function VariantRow({ variant }: { variant: AdminVariant }) {
+function VariantRow({ variant, holdsReady }: { variant: AdminVariant; holdsReady: boolean }) {
   const router = useRouter()
 
   const [size,         setSize]         = useState(variant.size ?? '')
@@ -1082,6 +1130,8 @@ function VariantRow({ variant }: { variant: AdminVariant }) {
       </div>
 
 )
+      {holdsReady && availableQty > 0 && <HoldForm variant={variant} />}
+
       {'alert_qty' in variant && (
         <div className="ap-alert-row">
           <span>Маячок: предупредить, когда доступно ≤</span>
@@ -1107,6 +1157,84 @@ function VariantRow({ variant }: { variant: AdminVariant }) {
 
       {error   && <div className="ap-error">{error}</div>}
       {message && <div className="ap-success">{message}</div>}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  HoldForm — «отложить айтем для удалёнщика до даты»                           */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function HoldForm({ variant }: { variant: AdminVariant }) {
+  const router = useRouter()
+  const [isOpen,   setIsOpen]   = useState(false)
+  const [email,    setEmail]    = useState('')
+  const [until,    setUntil]    = useState('')
+  const [delivery, setDelivery] = useState<'post' | 'office'>('post')
+  const [note,     setNote]     = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [error,    setError]    = useState<string | null>(null)
+  const [done,     setDone]     = useState<string | null>(null)
+
+  async function handleHold() {
+    setIsSaving(true); setError(null); setDone(null)
+    try {
+      const response = await fetch('/api/admin/holds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, variant_ids: [variant.id], hold_until: until, delivery_type: delivery, note }),
+      })
+      const result = await response.json()
+      if (!response.ok) { setError(result.error || 'Не удалось отложить'); return }
+      setDone(`Отложено — заказ #${result.order?.order_number ?? ''}. Снять резерв: отменить заказ.`)
+      setEmail(''); setUntil(''); setNote(''); setIsOpen(false)
+      router.refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  if (!isOpen) {
+    return (
+      <div className="ap-alert-row">
+        <button type="button" className="ap-small-action" onClick={() => setIsOpen(true)}>
+          Отложить для сотрудника
+        </button>
+        {done && <span className="ap-hold-done">{done}</span>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="ap-hold-form">
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="email сотрудника"
+        className="ap-input"
+      />
+      <label className="ap-hold-date">
+        до
+        <input type="date" value={until} min={todayInTashkent()} onChange={(e) => setUntil(e.target.value)} className="ap-input" />
+      </label>
+      <select value={delivery} onChange={(e) => setDelivery(e.target.value as 'post' | 'office')} className="ap-input">
+        <option value="post">Отправим почтой</option>
+        <option value="office">Заберёт в офисе</option>
+      </select>
+      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Комментарий" className="ap-input" />
+      <button
+        type="button"
+        onClick={handleHold}
+        disabled={isSaving || !email.trim() || !until}
+        className="ap-small-action-dark"
+      >
+        {isSaving ? 'Откладываем…' : 'Отложить 1 шт.'}
+      </button>
+      <button type="button" onClick={() => setIsOpen(false)} className="ap-small-action">Отмена</button>
+      {error && <div className="ap-error ap-hold-error">{error}</div>}
     </div>
   )
 }
