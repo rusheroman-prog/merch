@@ -129,6 +129,7 @@ export default function CatalogClient({
   /* Filters */
   const [category, setCategory] = useState<string>(ALL)
   const [size,     setSize]     = useState<string>(ALL)
+  const [color,    setColor]    = useState<string>(ALL)
   const [search,   setSearch]   = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('rec')
 
@@ -147,11 +148,22 @@ export default function CatalogClient({
     [products]
   )
 
+  const colors = useMemo(
+    () =>
+      Array.from(new Set(products.flatMap(p => p.variants.map(v => v.color?.trim()).filter(Boolean) as string[])))
+        .sort((a, b) => a.localeCompare(b, 'ru')),
+    [products]
+  )
+
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase()
     const filtered = products.filter(p => {
       const catMatch  = category === ALL || p.category_name === category
-      const sizeMatch = size === ALL || p.variants.some(v => getSizeKey(v) === size)
+      // Размер и цвет должны совпасть у одного и того же варианта.
+      const sizeMatch = p.variants.some(v =>
+        (size === ALL || getSizeKey(v) === size) &&
+        (color === ALL || v.color?.trim() === color)
+      )
       const srchMatch =
         q.length === 0 ||
         p.name.toLowerCase().includes(q) ||
@@ -166,15 +178,16 @@ export default function CatalogClient({
       )
     }
     return filtered
-  }, [products, category, size, search, sortMode])
+  }, [products, category, size, color, search, sortMode])
 
-  const hasFilters = category !== ALL || size !== ALL || search.trim().length > 0
+  const hasFilters = category !== ALL || size !== ALL || color !== ALL || search.trim().length > 0
   const firstName  = getUserFirstName(userName, userEmail)
   const initials   = getInitials(userName, userEmail)
 
   function resetFilters() {
     setCategory(ALL)
     setSize(ALL)
+    setColor(ALL)
     setSearch('')
   }
 
@@ -352,6 +365,22 @@ export default function CatalogClient({
                   <option value={ALL}>Все размеры</option>
                   {sizes.map(s => (
                     <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {colors.length > 1 && (
+              <label className="filters-block">
+                <span className="filters-label">Цвет</span>
+                <select
+                  className="filters-input filters-select"
+                  value={color}
+                  onChange={e => setColor(e.target.value)}
+                >
+                  <option value={ALL}>Все цвета</option>
+                  {colors.map(c => (
+                    <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </label>
