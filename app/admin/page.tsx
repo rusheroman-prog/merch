@@ -5,6 +5,17 @@ import { needsPasswordSetup } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import type { OrderStatus } from '@/lib/supabase/types'
 import { ADMIN_STATUS_OPTIONS, orderStatusLabel, statusTone } from '@/lib/orderStatus'
+import { formatTripRange, todayInTashkent } from '@/lib/trip'
+
+type TripTask = {
+  id: string
+  order_number: string
+  full_name: string | null
+  email: string | null
+  pickup_status: string | null
+  trip_from: string
+  trip_to: string
+}
 
 type AdminDashOrderItem = {
   id: string
@@ -88,6 +99,20 @@ export default async function AdminDashboardPage() {
     .eq('id', 1)
     .maybeSingle()
 
+  // Командировочные заказы — задачи с дедлайном. До миграции merch-business-trip.sql
+  // колонок trip_* нет: запрос вернёт ошибку, и блок просто не покажется.
+  const { data: tripRows } = await supabase
+    .from('orders')
+    .select('id, order_number, full_name, email, pickup_status, trip_from, trip_to')
+    .not('trip_to', 'is', null)
+    .not('status', 'in', '(received,cancelled,rejected)')
+    .order('trip_to', { ascending: true })
+
+  const tripTasks = ((tripRows ?? []) as TripTask[]).filter(
+    t => !['handed_owner', 'handed_other', 'refused'].includes(t.pickup_status ?? '')
+  )
+  const today = todayInTashkent()
+
   const orders   = ((ordersData   ?? []) as unknown) as AdminDashOrder[]
   const products = ((productsData ?? []) as unknown) as AdminDashProduct[]
 
@@ -151,6 +176,37 @@ export default async function AdminDashboardPage() {
           handoutNote={settings?.handout_note ?? null}
         />
       </section>
+
+      {/* ── Задачи: командировки ── */}
+      {tripTasks.length > 0 && (
+        <section className="dash-card">
+          <div className="dash-card-head">
+            <h2 className="dash-card-title">Задачи · командировки</h2>
+            <span className="dash-card-link">{tripTasks.length} к выдаче</span>
+          </div>
+          <div className="dash-recent-list">
+            {tripTasks.map(task => {
+              const due = getDueTag(task.trip_to, today)
+              return (
+                <a
+                  key={task.id}
+                  href={`/admin/orders?q=${encodeURIComponent(task.order_number)}`}
+                  className="dash-recent-row dash-task-row"
+                >
+                  <div>
+                    <b>
+                      Отдать мерч {task.full_name || task.email || 'сотруднику'} до{' '}
+                      {formatTripRange(task.trip_to, task.trip_to)}
+                    </b>
+                    <span>#{task.order_number} · в Ташкенте {formatTripRange(task.trip_from, task.trip_to)}</span>
+                  </div>
+                  <span className={`dash-badge dash-badge-${due.tone}`}>{due.label}</span>
+                </a>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       {/* ── Dashboard 2×2 ── */}
       <section className="dash-grid">
@@ -275,6 +331,17 @@ function KpiCard({
 /* ─────────────────────────────────────────────────────────────────────────── */
 /*  Helpers                                                                     */
 /* ─────────────────────────────────────────────────────────────────────────── */
+
+/** Метка дедлайна командировочной задачи относительно сегодняшней даты (YYYY-MM-DD). */
+function getDueTag(tripTo: string, today: string): { label: string; tone: 'red' | 'amber' | 'blue' } {
+  const days = Math.round(
+    (Date.parse(`${tripTo}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000
+  )
+  if (days < 0)  return { label: 'Просрочено', tone: 'red' }
+  if (days === 0) return { label: 'Сегодня', tone: 'red' }
+  if (days <= 3) return { label: `Через ${days} дн.`, tone: 'amber' }
+  return { label: `Через ${days} дн.`, tone: 'blue' }
+}
 
 function formatVariant(size: string | null, color: string | null) {
   return [color || 'Без цвета', size || 'ONE SIZE'].join(' · ')

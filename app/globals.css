@@ -3970,3 +3970,11 @@ a.login-help:hover .login-help-body span { color: var(--accent); }
 .ap-view-tab span    { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #f1ebff; color: var(--ink); }
 .ap-view-tab.ap-view-tab-active      { background: #1f1238; color: #fff; }
 .ap-view-tab.ap-view-tab-active span { background: rgba(255,255,255,0.18); color: #fff; }
+
+/* Checkout: business-trip dates */
+.trip-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 380px) { .trip-dates { grid-template-columns: 1fr; } }
+
+/* Admin dashboard: business-trip handout tasks */
+.dash-task-row        { color: inherit; text-decoration: none; border-radius: 12px; transition: background 0.15s; }
+.dash-task-row:hover  { background: #f7f3ff; }

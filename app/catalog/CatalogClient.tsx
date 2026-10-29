@@ -3,6 +3,7 @@
 import AppNav from '@/components/AppNav'
 import ProductImage from '@/components/ProductImage'
 import { decline, getProductLetter } from '@/lib/utils'
+import { todayInTashkent, validateTripDates } from '@/lib/trip'
 import { useMemo, useState } from 'react'
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -80,14 +81,18 @@ const ALL = 'all'
 const ONE_SIZE = 'ONE SIZE'
 const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL']
 
+/** 'trip' — только в корзине: на сервер уходит как office + даты командировки. */
+type CheckoutChoice = CheckoutDeliveryType | 'trip'
+
 const DELIVERY_OPTIONS: Array<{
-  value: CheckoutDeliveryType | 'pvz' | 'courier'
+  value: CheckoutChoice | 'pvz' | 'courier'
   title: string
   hint: string
   disabled?: boolean
 }> = [
   { value: 'office',  title: 'В офисе',     hint: 'Заберёте по коду заказа' },
   { value: 'post',    title: 'Почтой BTS',  hint: 'Для удалёнщиков' },
+  { value: 'trip',    title: 'Заберу в Ташкенте', hint: 'Удалёнщик в командировке' },
   { value: 'pvz',     title: 'ПВЗ',         hint: 'Скоро',  disabled: true },
   { value: 'courier', title: 'Курьер',      hint: 'Скоро',  disabled: true },
 ]
@@ -117,7 +122,9 @@ export default function CatalogClient({
   const [cart, setCart] = useState<CartItem[]>([])
 
   /* Checkout form */
-  const [deliveryType,    setDeliveryType]    = useState<CheckoutDeliveryType>(checkoutDefaults.deliveryType)
+  const [deliveryType,    setDeliveryType]    = useState<CheckoutChoice>(checkoutDefaults.deliveryType)
+  const [tripFrom,        setTripFrom]        = useState('')
+  const [tripTo,          setTripTo]          = useState('')
   const [deliveryAddress, setDeliveryAddress] = useState(checkoutDefaults.deliveryAddress)
   const [phone,           setPhone]           = useState(checkoutDefaults.phone)
   const [country,         setCountry]         = useState(checkoutDefaults.country)
@@ -233,6 +240,13 @@ export default function CatalogClient({
       setCheckoutError('Для отправки почтой укажите страну, адрес и телефон.')
       return
     }
+    if (deliveryType === 'trip') {
+      const tripError = validateTripDates(tripFrom, tripTo)
+      if (tripError) {
+        setCheckoutError(getCheckoutErrorMessage(tripError))
+        return
+      }
+    }
 
     setIsSubmitting(true)
     setCheckoutError(null)
@@ -244,11 +258,13 @@ export default function CatalogClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items:            cart.map(item => ({ variant_id: item.variant.id, qty: 1 })),
-          delivery_type:    deliveryType,
+          delivery_type:    deliveryType === 'trip' ? 'office' : deliveryType,
           delivery_address: deliveryType === 'post' ? deliveryAddress : null,
           phone,
           comment,
           country:          deliveryType === 'post' ? country : null,
+          trip_from:        deliveryType === 'trip' ? tripFrom : null,
+          trip_to:          deliveryType === 'trip' ? tripTo : null,
         }),
       })
 
@@ -467,6 +483,10 @@ export default function CatalogClient({
               <CartAside
                 cart={cart}
                 deliveryType={deliveryType}
+                tripFrom={tripFrom}
+                tripTo={tripTo}
+                onTripFromChange={setTripFrom}
+                onTripToChange={setTripTo}
                 deliveryAddress={deliveryAddress}
                 phone={phone}
                 country={country}
@@ -592,6 +612,10 @@ function ProductCard({
 function CartAside({
   cart,
   deliveryType,
+  tripFrom,
+  tripTo,
+  onTripFromChange,
+  onTripToChange,
   deliveryAddress,
   phone,
   country,
@@ -610,7 +634,11 @@ function CartAside({
   onCheckout,
 }: {
   cart: CartItem[]
-  deliveryType: CheckoutDeliveryType
+  deliveryType: CheckoutChoice
+  tripFrom: string
+  tripTo: string
+  onTripFromChange: (value: string) => void
+  onTripToChange: (value: string) => void
   deliveryAddress: string
   phone: string
   country: string
@@ -621,7 +649,7 @@ function CartAside({
   checkoutSuccess: string | null
   merchAccess: MerchAccess
   onRemove: (variantId: string) => void
-  onDeliveryTypeChange: (value: CheckoutDeliveryType) => void
+  onDeliveryTypeChange: (value: CheckoutChoice) => void
   onDeliveryAddressChange: (value: string) => void
   onPhoneChange: (value: string) => void
   onCountryChange: (value: string) => void
@@ -696,7 +724,7 @@ function CartAside({
                       value={option.value}
                       checked={isOn}
                       disabled={option.disabled}
-                      onChange={() => onDeliveryTypeChange(option.value as CheckoutDeliveryType)}
+                      onChange={() => onDeliveryTypeChange(option.value as CheckoutChoice)}
                     />
                     <span className="delivery-option-body">
                       <b>{option.title}</b>
@@ -707,7 +735,37 @@ function CartAside({
               })}
             </fieldset>
 
-            {!isPost && (handout.place || handout.deadline) && (
+            {deliveryType === 'trip' && (
+              <>
+                <div className="trip-dates">
+                  <label className="form-label">
+                    В Ташкенте с
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={tripFrom}
+                      min={todayInTashkent()}
+                      onChange={e => onTripFromChange(e.target.value)}
+                    />
+                  </label>
+                  <label className="form-label">
+                    по
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={tripTo}
+                      min={tripFrom || todayInTashkent()}
+                      onChange={e => onTripToChange(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <p className="cart-note">
+                  Мерч зарезервируем за вами, а команда мерча подготовит его к выдаче в офисе до конца поездки.
+                </p>
+              </>
+            )}
+
+            {deliveryType === 'office' && (handout.place || handout.deadline) && (
               <div className="delivery-info">
                 {handout.place && <span><b>Где:</b> {handout.place}</span>}
                 {handout.deadline && <span><b>Когда:</b> {formatDateTime(handout.deadline)}</span>}
@@ -923,6 +981,12 @@ function getCheckoutErrorMessage(error: string): string {
     return 'Этот способ получения пока недоступен. Выберите «В офисе» или «Почтой BTS».'
   if (error.includes('post_details_required'))
     return 'Для отправки почтой укажите страну, адрес и телефон.'
+  if (error.includes('trip_dates_required'))
+    return 'Укажите даты, когда вы будете в Ташкенте.'
+  if (error.includes('trip_dates_invalid'))
+    return 'Дата отъезда не может быть раньше даты приезда.'
+  if (error.includes('trip_dates_past'))
+    return 'Даты командировки уже прошли — выберите будущие.'
   if (error.includes('invalid input value for enum'))
     return 'Отправка почтой ещё не включена на сервере. Обратитесь к администратору.'
   if (error.includes('product_is_not_available'))

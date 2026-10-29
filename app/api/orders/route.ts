@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { ACTIVE_DELIVERY_TYPES, type DeliveryType } from '@/lib/supabase/types'
+import { formatTripRange, validateTripDates } from '@/lib/trip'
 
 type CheckoutItem = {
   variant_id: string
@@ -15,6 +16,9 @@ type CheckoutPayload = {
   comment?: string
   is_remote?: boolean
   country?: string
+  /** Удалёнщик в командировке забирает в офисе Ташкента в эти даты. */
+  trip_from?: string | null
+  trip_to?: string | null
 }
 
 const MAX_UNIQUE_PRODUCTS = 3
@@ -120,23 +124,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'delivery_type_unavailable' }, { status: 400 })
     }
 
-    // Отправка почтой = удалёнщик. Флаг выводим из способа получения,
-    // чтобы он не расходился с выбором в корзине.
-    const isRemote = deliveryType === 'post'
-    const country = isRemote ? (body.country?.trim() || null) : null
+    // Удалёнщик = отправка почтой или командировка с выдачей в офисе.
+    // Флаг выводим из выбора в корзине, чтобы они не расходились.
+    const isTrip = deliveryType === 'office' && Boolean(body.trip_from || body.trip_to)
+    const isRemote = deliveryType === 'post' || isTrip
+    const country = deliveryType === 'post' ? (body.country?.trim() || null) : null
     const deliveryAddress = body.delivery_address?.trim() || null
     const phone = body.phone?.trim() || null
 
-    if (isRemote && (!country || !deliveryAddress || !phone)) {
+    if (deliveryType === 'post' && (!country || !deliveryAddress || !phone)) {
       return NextResponse.json({ error: 'post_details_required' }, { status: 400 })
     }
+
+    if (isTrip) {
+      const tripError = validateTripDates(body.trip_from, body.trip_to)
+      if (tripError) {
+        return NextResponse.json({ error: tripError }, { status: 400 })
+      }
+    }
+
+    // Даты дублируем в комментарий: админ увидит их даже до миграции trip_*.
+    const tripNote = isTrip
+      ? `Командировка в Ташкент: ${formatTripRange(body.trip_from!, body.trip_to!)}`
+      : null
+    const comment = [tripNote, body.comment?.trim()].filter(Boolean).join('\n') || null
 
     const { data, error } = await supabase.rpc('create_merch_order', {
       p_items: items,
       p_delivery_type: deliveryType,
       p_delivery_address: deliveryAddress,
       p_phone: phone,
-      p_comment: body.comment ?? null,
+      p_comment: comment,
       p_is_remote: isRemote,
       p_country: country,
     })
@@ -146,6 +164,17 @@ export async function POST(request: NextRequest) {
         { error: error.message },
         { status: 400 }
       )
+    }
+
+    if (isTrip) {
+      const order = data as { id?: string } | null
+      // Заказ и резерв уже созданы — сбой дат не должен его отменять.
+      const { error: tripError } = await supabase.rpc('set_order_trip', {
+        p_order_id: order?.id ?? '',
+        p_trip_from: body.trip_from!,
+        p_trip_to: body.trip_to!,
+      })
+      if (tripError) console.error('set_order_trip failed', tripError.message)
     }
 
     return NextResponse.json({

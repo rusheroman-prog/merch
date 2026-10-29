@@ -284,6 +284,8 @@ export type Database = {
           handed_to:        string | null
           is_remote:        boolean
           country:          string | null
+          trip_from:        string | null
+          trip_to:          string | null
           created_at:       string
           confirmed_at:     string | null
           shipped_at:       string | null
@@ -451,6 +453,14 @@ export type Database = {
           p_tracking_number: string | null
         }
         Returns: unknown
+      }
+      set_order_trip: {
+        Args: {
+          p_order_id:  string
+          p_trip_from: string
+          p_trip_to:   string
+        }
+        Returns: undefined
       }
       admin_set_order_handout: {
         Args: {
