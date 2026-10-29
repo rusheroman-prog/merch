@@ -7,8 +7,11 @@ type AdminProductAction =
   | 'create_variant'
   | 'update_variant'
   | 'add_stock'
+  | 'set_archived'
 
 type Payload = {
+  archived?: boolean
+
   action?: AdminProductAction
 
   product_id?: string
@@ -136,6 +139,34 @@ export async function POST(request: NextRequest) {
           images: imageUrl ? [imageUrl] : [],
           is_active: body.is_active ?? true,
         })
+        .eq('id', body.product_id)
+        .select('id')
+        .single()
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+
+      return NextResponse.json({ ok: true, product: data })
+    }
+
+    if (body.action === 'set_archived') {
+      if (!body.product_id) {
+        return NextResponse.json(
+          { error: 'Не передан product_id' },
+          { status: 400 }
+        )
+      }
+
+      // В архиве товар всегда скрыт из каталога; при возврате остаётся
+      // скрытым, пока админ сам не включит «Видим в каталоге».
+      const { data, error } = await supabase
+        .from('products')
+        .update(
+          body.archived
+            ? { archived_at: new Date().toISOString(), is_active: false }
+            : { archived_at: null }
+        )
         .eq('id', body.product_id)
         .select('id')
         .single()

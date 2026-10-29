@@ -74,7 +74,7 @@ export default async function AdminProductsPage() {
     )
   }
 
-  const { data: products, error: productsError } = await supabase
+  const loadProducts = (withArchive: boolean) => supabase
     .from('products')
     .select(
       `
@@ -86,6 +86,7 @@ export default async function AdminProductsPage() {
       image_url,
       images,
       is_active,
+      ${withArchive ? 'archived_at,' : ''}
       created_at,
       updated_at,
       categories (
@@ -109,6 +110,14 @@ export default async function AdminProductsPage() {
     )
     .order('name', { ascending: true })
 
+  // До миграции merch-product-archive.sql колонки archived_at нет —
+  // тогда показываем товары без архива, а не ошибку.
+  let { data: products, error: productsError } = await loadProducts(true)
+  const archiveReady = !productsError?.message.includes('archived_at')
+  if (!archiveReady) {
+    ({ data: products, error: productsError } = await loadProducts(false))
+  }
+
   const { count: orderCount } = await supabase
     .from('orders')
     .select('id', { count: 'exact', head: true })
@@ -127,7 +136,8 @@ export default async function AdminProductsPage() {
 
   return (
     <AdminProductsClient
-      products={(products ?? []) as AdminProduct[]}
+      products={(products ?? []) as unknown as AdminProduct[]}
+      archiveReady={archiveReady}
       categories={(categories ?? []) as AdminCategory[]}
       adminEmail={user.email ?? ''}
       orderCount={orderCount ?? 0}

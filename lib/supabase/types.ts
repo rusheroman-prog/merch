@@ -151,6 +151,7 @@ export type Database = {
           image_url:   string | null
           images:      string[]
           is_active:   boolean
+          archived_at: string | null
           created_at:  string
           updated_at:  string
         }
@@ -163,6 +164,7 @@ export type Database = {
           image_url?:   string | null
           images?:      string[]
           is_active?:   boolean
+          archived_at?: string | null
         }
         Update: Partial<Database['public']['Tables']['products']['Insert']>
         Relationships: [

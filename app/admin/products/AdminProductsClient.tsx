@@ -35,6 +35,7 @@ export type AdminProduct = {
   image_url: string | null
   images: string[]
   is_active: boolean
+  archived_at?: string | null
   created_at: string
   updated_at: string
   categories: AdminCategory | AdminCategory[] | null
@@ -46,16 +47,27 @@ type Props = {
   categories: AdminCategory[]
   adminEmail: string
   orderCount: number
+  /** false, пока не прогнана миграция merch-product-archive.sql */
+  archiveReady: boolean
 }
 
 type StockFilter = 'all' | 'low' | 'zero' | 'normal'
+type ListView = 'current' | 'archive'
 
 export default function AdminProductsClient({
-  products,
+  products: allProducts,
   categories,
   adminEmail,
   orderCount,
+  archiveReady,
 }: Props) {
+  const [view, setView] = useState<ListView>('current')
+  const archivedCount = allProducts.filter((p) => p.archived_at).length
+  const products = useMemo(
+    () => allProducts.filter((p) => Boolean(p.archived_at) === (view === 'archive')),
+    [allProducts, view]
+  )
+
   const searchParams  = useSearchParams()
   const isCardsMode   = searchParams.get('mode') === 'cards'
   const queryFromUrl  = searchParams.get('q') ?? ''
@@ -158,6 +170,26 @@ export default function AdminProductsClient({
       stockAlertCount={totals.lowVariants}
     >
       <section className="ap-page">
+
+        {/* Current / archive */}
+        {archiveReady && (
+          <section className="ap-view-tabs">
+            <button
+              type="button"
+              onClick={() => { setView('current'); setEditingProductId(null); setExpandedProductId(null) }}
+              className={`ap-view-tab${view === 'current' ? ' ap-view-tab-active' : ''}`}
+            >
+              Товары <span>{allProducts.length - archivedCount}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setView('archive'); setEditingProductId(null); setExpandedProductId(null) }}
+              className={`ap-view-tab${view === 'archive' ? ' ap-view-tab-active' : ''}`}
+            >
+              Архив <span>{archivedCount}</span>
+            </button>
+          </section>
+        )}
 
         {/* Category tabs */}
         <section className="ap-cat-tabs">
@@ -269,8 +301,14 @@ export default function AdminProductsClient({
         {filteredProducts.length === 0 ? (
           <section className="ap-empty-card">
             <div className="ap-empty-mark">∅</div>
-            <h2 className="ap-empty-title">Товары не найдены</h2>
-            <p className="ap-empty-text">Измените поиск, категорию или складской фильтр.</p>
+            <h2 className="ap-empty-title">
+              {view === 'archive' && products.length === 0 ? 'Архив пуст' : 'Товары не найдены'}
+            </h2>
+            <p className="ap-empty-text">
+              {view === 'archive' && products.length === 0
+                ? 'Сюда попадают товары, убранные в архив. Их можно вернуть, когда айтем снова появится.'
+                : 'Измените поиск, категорию или складской фильтр.'}
+            </p>
           </section>
 
         ) : isCardsMode ? (
@@ -624,6 +662,7 @@ function ProductEditPanel({
         </div>
 
         <div className="ap-edit-hero-actions">
+          {'archived_at' in product && <ArchiveButton product={product} onDone={onClose} />}
           <button type="button" onClick={onClose} className="ap-dark-btn">Закрыть</button>
         </div>
       </div>
@@ -633,6 +672,40 @@ function ProductEditPanel({
         <VariantsEditor product={product} />
       </section>
     </section>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  ArchiveButton                                                                */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+function ArchiveButton({ product, onDone }: { product: AdminProduct; onDone: () => void }) {
+  const router     = useRouter()
+  const isArchived = Boolean(product.archived_at)
+  const [isSaving, setIsSaving] = useState(false)
+
+  async function handleClick() {
+    if (!isArchived && !window.confirm(`Убрать «${product.name}» в архив? Товар пропадёт из каталога.`)) return
+    setIsSaving(true)
+    try {
+      const response = await fetch('/api/admin/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_archived', product_id: product.id, archived: !isArchived }),
+      })
+      const result = await response.json()
+      if (!response.ok) { window.alert(result.error || 'Не удалось обновить товар'); return }
+      onDone()
+      router.refresh()
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <button type="button" onClick={handleClick} disabled={isSaving} className="ap-light-btn">
+      {isSaving ? '…' : isArchived ? 'Вернуть из архива' : 'В архив'}
+    </button>
   )
 }
 
@@ -695,9 +768,14 @@ function ProductMainEditor({
           <h3 className="ap-panel-title">Основное</h3>
           <p className="ap-panel-hint">Измените данные товара и сохраните изменения.</p>
         </div>
-        <label className="ap-switch-label">
-          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-          Видим в каталоге
+        <label className="ap-switch-label" title={product.archived_at ? 'Сначала верните товар из архива' : undefined}>
+          <input
+            type="checkbox"
+            checked={isActive}
+            disabled={Boolean(product.archived_at)}
+            onChange={(e) => setIsActive(e.target.checked)}
+          />
+          {product.archived_at ? 'В архиве' : 'Видим в каталоге'}
         </label>
       </div>
 

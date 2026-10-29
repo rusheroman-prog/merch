@@ -3963,3 +3963,10 @@ a.login-help:hover .login-help-body span { color: var(--accent); }
 /* Support contact in the employee order footer */
 .order-support-link { color: var(--accent); font-weight: 700; text-decoration: none; }
 .order-support-link:hover { text-decoration: underline; }
+
+/* Admin products: current / archive switch */
+.ap-view-tabs        { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: #fff; border: 1px solid var(--border); align-self: flex-start; }
+.ap-view-tab         { min-height: 34px; border: 0; border-radius: 999px; background: transparent; color: var(--inkMute); padding: 0 16px; font-size: 13px; font-weight: 800; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 8px; }
+.ap-view-tab span    { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #f1ebff; color: var(--ink); }
+.ap-view-tab.ap-view-tab-active      { background: #1f1238; color: #fff; }
+.ap-view-tab.ap-view-tab-active span { background: rgba(255,255,255,0.18); color: #fff; }
