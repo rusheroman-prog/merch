@@ -3978,3 +3978,16 @@ a.login-help:hover .login-help-body span { color: var(--accent); }
 /* Admin dashboard: business-trip handout tasks */
 .dash-task-row        { color: inherit; text-decoration: none; border-radius: 12px; transition: background 0.15s; }
 .dash-task-row:hover  { background: #f7f3ff; }
+
+/* Admin orders: handout by scan */
+.ao-scan-card       { background: #fff; border: 1px solid var(--border); border-radius: 18px; padding: 16px 18px; display: grid; gap: 12px; }
+.ao-scan-form       { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.ao-scan-input-row  { display: flex; gap: 8px; flex: 1 1 320px; max-width: 460px; }
+.ao-scan-input      { flex: 1; min-width: 0; font-size: 15px; font-weight: 800; letter-spacing: 0.04em; }
+.ao-scan-btn        { margin-top: 0; flex: 0 0 auto; }
+.ao-scan-log        { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ao-scan-item       { border-radius: 12px; padding: 9px 12px; display: grid; gap: 2px; font-size: 13px; }
+.ao-scan-item span  { color: var(--inkMute); font-size: 12px; }
+.ao-scan-ok         { background: #e9f9ef; color: #146c3a; }
+.ao-scan-warn       { background: #fff6e0; color: #8a5a00; }
+.ao-scan-error      { background: #ffe9ec; color: #a1122b; }

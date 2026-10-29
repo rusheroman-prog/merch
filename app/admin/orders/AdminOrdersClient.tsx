@@ -3,7 +3,7 @@
 import AdminShell from '@/components/AdminShell'
 import OrderBarcode from '@/components/OrderBarcode'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import QRCode from 'qrcode'
 import { DELIVERY_TYPE_LABELS, type DeliveryType, type OrderStatus } from '@/lib/supabase/types'
 import { getExportDate, getProductLetter, toCsv } from '@/lib/utils'
@@ -207,6 +207,8 @@ export default function AdminOrdersClient({
       stockAlertCount={stockAlertCount}
     >
       <section className="ao-page">
+        <ScanHandout />
+
         <StatusTabs
           activeStatus={statusFilter}
           counters={counters}
@@ -370,6 +372,115 @@ export default function AdminOrdersClient({
         )}
       </section>
     </AdminShell>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/*  ScanHandout — выдача по скану QR                                            */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+type ScanResult = {
+  id: number
+  tone: 'ok' | 'warn' | 'error'
+  title: string
+  detail: string
+}
+
+type HandoutSummary = {
+  order_number: string
+  full_name: string
+  storage_location: string | null
+  items: Array<{ product_name: string; size: string | null; color: string | null; qty: number }>
+}
+
+/**
+ * Сканер работает как клавиатура: вводит номер заказа и жмёт Enter.
+ * Заказ сразу становится «Получен» + «Отдан заказчику».
+ */
+function ScanHandout() {
+  const router = useRouter()
+  const [code,    setCode]    = useState('')
+  const [busy,    setBusy]    = useState(false)
+  const [results, setResults] = useState<ScanResult[]>([])
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault()
+    const value = code.trim()
+    if (!value || busy) return
+
+    setBusy(true)
+    setCode('')
+    let result: ScanResult
+
+    try {
+      const response = await fetch('/api/admin/orders/handout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: value }),
+      })
+      const data = await response.json() as { error?: string; alreadyHanded?: boolean; order?: HandoutSummary }
+      const order = data.order
+      const detail = order
+        ? [
+            order.items.map((i) => `${i.product_name} (${[i.color, i.size].filter(Boolean).join(', ') || 'ONE SIZE'})`).join(' · '),
+            order.storage_location ? `Где лежит: ${order.storage_location}` : '',
+          ].filter(Boolean).join(' — ')
+        : ''
+
+      if (!response.ok) {
+        result = { id: Date.now(), tone: 'error', title: data.error || 'Не удалось выдать заказ', detail }
+      } else if (data.alreadyHanded) {
+        result = { id: Date.now(), tone: 'warn', title: `#${order?.order_number} уже выдан ранее — ${order?.full_name}`, detail }
+      } else {
+        result = { id: Date.now(), tone: 'ok', title: `Выдано: #${order?.order_number} — ${order?.full_name}`, detail }
+        router.refresh()
+      }
+    } catch (error) {
+      result = { id: Date.now(), tone: 'error', title: error instanceof Error ? error.message : 'Ошибка сети', detail: '' }
+    } finally {
+      setBusy(false)
+    }
+
+    setResults((current) => [result, ...current].slice(0, 5))
+  }
+
+  return (
+    <section className="ao-scan-card">
+      <form className="ao-scan-form" onSubmit={handleSubmit}>
+        <div>
+          <h3 className="ao-card-title">Выдача по скану</h3>
+          <p className="ao-manage-text">
+            Наведите сканер на QR сотрудника — заказ сразу отметится «Отдан заказчику».
+            Можно ввести номер вручную и нажать Enter.
+          </p>
+        </div>
+        <div className="ao-scan-input-row">
+          <input
+            autoFocus
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="Номер заказа или скан QR"
+            className="ao-input ao-scan-input"
+            inputMode="numeric"
+            autoComplete="off"
+          />
+          <button type="submit" className="ao-save-btn ao-scan-btn" disabled={busy || !code.trim()}>
+            {busy ? 'Выдаём…' : 'Выдать'}
+          </button>
+        </div>
+      </form>
+
+      {results.length > 0 && (
+        <ul className="ao-scan-log">
+          {results.map((r) => (
+            <li key={r.id} className={`ao-scan-item ao-scan-${r.tone}`}>
+              <b>{r.title}</b>
+              {r.detail && <span>{r.detail}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
