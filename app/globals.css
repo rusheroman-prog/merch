@@ -4048,3 +4048,16 @@ a.login-help:hover .login-help-body span { color: var(--accent); }
 .ap-hold-date  { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--inkMute); }
 .ap-hold-done  { font-size: 12px; font-weight: 700; color: #146c3a; }
 .ap-hold-error { flex-basis: 100%; }
+
+/* Loading skeletons (loading.tsx) */
+.skeleton        { border-radius: 16px; background: linear-gradient(90deg, #efeaf8 0%, #f7f4fc 50%, #efeaf8 100%); background-size: 200% 100%; animation: skeleton-shimmer 1.2s ease-in-out infinite; }
+.skeleton-page   { max-width: 1240px; margin: 0 auto; padding: 32px 16px; display: grid; gap: 20px; }
+.skeleton-title  { height: 34px; width: min(320px, 70%); }
+.skeleton-grid   { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.skeleton-card   { height: 300px; }
+.skeleton-list   { display: grid; gap: 14px; }
+.skeleton-row    { height: 120px; }
+.skeleton-kpis   { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.skeleton-kpi    { height: 112px; }
+@keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }

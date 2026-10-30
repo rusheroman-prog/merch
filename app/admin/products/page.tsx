@@ -1,7 +1,4 @@
-import Link from 'next/link'
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { needsPasswordSetup } from '@/lib/auth'
+import { requireAdmin } from '@/lib/session'
 import { loadAlertMap } from '@/lib/stockAlerts'
 import AdminProductsClient, {
   type AdminCategory,
@@ -9,71 +6,7 @@ import AdminProductsClient, {
 } from './AdminProductsClient'
 
 export default async function AdminProductsPage() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
-  if (await needsPasswordSetup(supabase, user.id)) {
-    redirect('/set-password')
-  }
-
-  const { data: employee, error: employeeError } = await supabase
-    .from('employees')
-    .select('id, email, full_name, is_admin')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (employeeError) {
-    return (
-      <main className="page-error">
-        <section className="error-card">
-          <div className="error-card-icon">!</div>
-          <h1 className="error-title">Не удалось проверить роль</h1>
-          <p className="error-text">{employeeError.message}</p>
-        </section>
-      </main>
-    )
-  }
-
-  if (!employee?.is_admin) {
-    return (
-      <main className="page-error">
-        <section className="error-card">
-          <div className="error-card-icon">🔒</div>
-          <h1 className="error-title">Доступ запрещён</h1>
-          <p className="error-text">
-            Эта страница доступна только администраторам.
-          </p>
-          <Link href="/catalog" className="error-back-link">
-            ← Вернуться в каталог
-          </Link>
-        </section>
-      </main>
-    )
-  }
-
-  const { data: categories, error: categoriesError } = await supabase
-    .from('categories')
-    .select('id, name, sort')
-    .order('sort', { ascending: true })
-
-  if (categoriesError) {
-    return (
-      <main className="page-error">
-        <section className="error-card">
-          <div className="error-card-icon">!</div>
-          <h1 className="error-title">Не удалось загрузить категории</h1>
-          <p className="error-text">{categoriesError.message}</p>
-        </section>
-      </main>
-    )
-  }
+  const { supabase, user } = await requireAdmin()
 
   const loadProducts = (optional: string[]) => supabase
     .from('products')
@@ -111,29 +44,49 @@ export default async function AdminProductsPage() {
     )
     .order('name', { ascending: true })
 
-  // archived_at, audience и segment появляются миграциями 20261030000200_merch_product_archive.sql,
-  // 20261030000400_merch_welcome_pack.sql и 20261030000600_merch_segments_holds.sql. Пока какой-то нет — убираем её из запроса и
-  // показываем страницу без соответствующей функции, а не ошибку.
+  // archived_at, audience и segment появляются миграциями 20261030000200, 20261030000400
+  // и 20261030000600; пороги маячков — 20261030000500 (грузятся отдельно).
+  // Всё независимое — параллельно, чтобы не ждать круги до базы по очереди.
   let optional = ['archived_at', 'audience', 'segment']
-  let { data: products, error: productsError } = await loadProducts(optional)
+  const [
+    { data: categories, error: categoriesError },
+    firstProducts,
+    alerts,
+    { count: orderCount },
+  ] = await Promise.all([
+    supabase.from('categories').select('id, name, sort').order('sort', { ascending: true }),
+    loadProducts(optional),
+    loadAlertMap(supabase),
+    supabase.from('orders').select('id', { count: 'exact', head: true }),
+  ])
+
+  let { data: products, error: productsError } = firstProducts
+
+  // Если какой-то миграции нет — убираем её колонку и показываем страницу без этой функции.
   while (productsError && optional.some((column) => productsError!.message.includes(column))) {
     optional = optional.filter((column) => !productsError!.message.includes(column))
     ;({ data: products, error: productsError } = await loadProducts(optional))
   }
   const archiveReady = optional.includes('archived_at')
 
-  // Пороги маячков грузим отдельно: до 20261030000500_merch_stock_alerts.sql колонки нет.
-  const alerts = await loadAlertMap(supabase)
+  if (categoriesError) {
+    return (
+      <main className="page-error">
+        <section className="error-card">
+          <div className="error-card-icon">!</div>
+          <h1 className="error-title">Не удалось загрузить категории</h1>
+          <p className="error-text">{categoriesError.message}</p>
+        </section>
+      </main>
+    )
+  }
+
   const productsWithAlerts = ((products ?? []) as unknown as AdminProduct[]).map((product) => ({
     ...product,
     product_variants: product.product_variants.map((variant) =>
       alerts ? { ...variant, alert_qty: alerts.get(variant.id) ?? null } : variant
     ),
   }))
-
-  const { count: orderCount } = await supabase
-    .from('orders')
-    .select('id', { count: 'exact', head: true })
 
   if (productsError) {
     return (

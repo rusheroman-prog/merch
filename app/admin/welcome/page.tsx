@@ -1,23 +1,9 @@
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { needsPasswordSetup } from '@/lib/auth'
+import { requireAdmin } from '@/lib/session'
 import { countStockAlerts } from '@/lib/stockAlerts'
 import AdminWelcomeClient, { type WelcomeInviteRow } from './AdminWelcomeClient'
 
 export default async function AdminWelcomePage() {
-  const supabase = await createClient()
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (await needsPasswordSetup(supabase, user.id)) redirect('/set-password')
-
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('is_admin, email')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (!employee?.is_admin) redirect('/catalog')
+  const { supabase, user, employee } = await requireAdmin()
 
   const [{ data: invites, error: invitesError }, { count: orderCount }, stockAlertCount, { data: welcomeProducts }] =
     await Promise.all([

@@ -1,9 +1,7 @@
 import AppNav from '@/components/AppNav'
 import OrderBarcode from '@/components/OrderBarcode'
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { needsPasswordSetup } from '@/lib/auth'
+import { requireSession } from '@/lib/session'
 import { decline, getProductLetter } from '@/lib/utils'
 import { DELIVERY_TYPE_LABELS, type DeliveryType, type OrderStatus } from '@/lib/supabase/types'
 import { flowIndex, flowStepLabels, isShippedOrder, orderStatusLabel, statusTone } from '@/lib/orderStatus'
@@ -56,35 +54,26 @@ const deliveryLabels = DELIVERY_TYPE_LABELS
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 export default async function OrdersPage() {
-  const supabase = await createClient()
+  const { supabase, user, employee } = await requireSession()
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (await needsPasswordSetup(supabase, user.id)) redirect('/set-password')
-
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('is_admin')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const { data: rawOrders, error } = await supabase
-    .from('orders')
-    .select(`
-      id, order_number, status, delivery_type, delivery_address,
-      full_name, phone, email, city, department,
-      comment, admin_comment, tracking_number,
-      created_at, confirmed_at, shipped_at, received_at, cancelled_at,
-      order_items ( id, product_id, product_name, size, color, sku, qty )
-    `)
-    .eq('employee_id', user.id)
-    .order('created_at', { ascending: false })
-
-  const { data: settings } = await supabase
-    .from('merch_settings')
-    .select('handout_deadline, handout_place, handout_note')
-    .eq('id', 1)
-    .maybeSingle()
+  const [{ data: rawOrders, error }, { data: settings }] = await Promise.all([
+    supabase
+      .from('orders')
+      .select(`
+        id, order_number, status, delivery_type, delivery_address,
+        full_name, phone, email, city, department,
+        comment, admin_comment, tracking_number,
+        created_at, confirmed_at, shipped_at, received_at, cancelled_at,
+        order_items ( id, product_id, product_name, size, color, sku, qty )
+      `)
+      .eq('employee_id', user.id)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('merch_settings')
+      .select('handout_deadline, handout_place, handout_note')
+      .eq('id', 1)
+      .maybeSingle(),
+  ])
 
   const isAdmin = Boolean(employee?.is_admin)
 

@@ -1,8 +1,6 @@
 import AdminShell from '@/components/AdminShell'
 import DeadlineEditor from '@/components/DeadlineEditor'
-import { createClient } from '@/lib/supabase/server'
-import { needsPasswordSetup } from '@/lib/auth'
-import { redirect } from 'next/navigation'
+import { requireAdmin } from '@/lib/session'
 import type { OrderStatus } from '@/lib/supabase/types'
 import { ADMIN_STATUS_OPTIONS, orderStatusLabel, statusTone } from '@/lib/orderStatus'
 import { formatTripRange, todayInTashkent } from '@/lib/trip'
@@ -82,21 +80,20 @@ function statusBucket(status: OrderStatus): OrderStatus {
 }
 
 export default async function AdminDashboardPage() {
-  const supabase = await createClient()
+  const { supabase, user, employee } = await requireAdmin()
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (await needsPasswordSetup(supabase, user.id)) redirect('/set-password')
-
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('is_admin, email')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (!employee?.is_admin) redirect('/catalog')
-
-  const [{ data: ordersData }, { data: productsData }] = await Promise.all([
+  // Всё независимое — одним параллельным пакетом: каждый запрос к базе — это
+  // отдельный круг до Supabase, и последовательно они складывались в секунды.
+  // trip_* и hold_until появляются миграциями 20261030000300 и 20261030000600;
+  // до них запросы вернут ошибку, и блок задач просто не покажется.
+  const [
+    { data: ordersData },
+    { data: productsData },
+    { data: settings },
+    { data: tripRows },
+    { data: holdRows },
+    alerts,
+  ] = await Promise.all([
     supabase
       .from('orders')
       .select(`
@@ -112,29 +109,31 @@ export default async function AdminDashboardPage() {
         product_variants ( id, size, color, sku, total_qty, reserved_qty, is_active )
       `)
       .order('created_at', { ascending: false }),
+
+    supabase
+      .from('merch_settings')
+      .select('handout_deadline, handout_place, handout_note')
+      .eq('id', 1)
+      .maybeSingle(),
+
+    // Командировочные заказы — задачи с дедлайном.
+    supabase
+      .from('orders')
+      .select('id, order_number, full_name, email, pickup_status, trip_from, trip_to')
+      .not('trip_to', 'is', null)
+      .not('status', 'in', '(received,cancelled,rejected)')
+      .order('trip_to', { ascending: true }),
+
+    // Ручные резервы «до даты» — те же задачи.
+    supabase
+      .from('orders')
+      .select('id, order_number, full_name, email, pickup_status, hold_until')
+      .not('hold_until', 'is', null)
+      .not('status', 'in', '(received,cancelled,rejected)'),
+
+    // Маячки: у варианта может быть свой порог, иначе 4 шт.
+    loadAlertMap(supabase),
   ])
-
-  const { data: settings } = await supabase
-    .from('merch_settings')
-    .select('handout_deadline, handout_place, handout_note')
-    .eq('id', 1)
-    .maybeSingle()
-
-  // Командировочные заказы — задачи с дедлайном. До миграции 20261030000300_merch_business_trip.sql
-  // колонок trip_* нет: запрос вернёт ошибку, и блок просто не покажется.
-  const { data: tripRows } = await supabase
-    .from('orders')
-    .select('id, order_number, full_name, email, pickup_status, trip_from, trip_to')
-    .not('trip_to', 'is', null)
-    .not('status', 'in', '(received,cancelled,rejected)')
-    .order('trip_to', { ascending: true })
-
-  // Ручные резервы «до даты» (20261030000600_merch_segments_holds.sql) — те же задачи.
-  const { data: holdRows } = await supabase
-    .from('orders')
-    .select('id, order_number, full_name, email, pickup_status, hold_until')
-    .not('hold_until', 'is', null)
-    .not('status', 'in', '(received,cancelled,rejected)')
 
   const tasks: DeadlineTask[] = [
     ...((tripRows ?? []) as TripTask[])
@@ -171,8 +170,6 @@ export default async function AdminDashboardPage() {
 
   const uniqueEmployees = new Set(orders.map(o => o.employee_id)).size
 
-  // Маячки: у варианта может быть свой порог (20261030000500_merch_stock_alerts.sql), иначе 4 шт.
-  const alerts = await loadAlertMap(supabase)
   const lowStockVariants = products.flatMap(product =>
     product.product_variants
       .filter(v => v.is_active)

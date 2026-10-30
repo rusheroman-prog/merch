@@ -1,59 +1,9 @@
-import Link from 'next/link'
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
 import { countStockAlerts } from '@/lib/stockAlerts'
-import { needsPasswordSetup } from '@/lib/auth'
+import { requireAdmin } from '@/lib/session'
 import AdminEmployeesClient, { type DirectoryEmployee } from './AdminEmployeesClient'
 
 export default async function AdminEmployeesPage() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
-  if (await needsPasswordSetup(supabase, user.id)) {
-    redirect('/set-password')
-  }
-
-  const { data: employee, error: employeeError } = await supabase
-    .from('employees')
-    .select('id, email, full_name, is_admin, is_active')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (employeeError) {
-    return (
-      <main className="page-error">
-        <section className="error-card">
-          <div className="error-card-icon">!</div>
-          <h1 className="error-title">Не удалось проверить роль</h1>
-          <p className="error-text">{employeeError.message}</p>
-        </section>
-      </main>
-    )
-  }
-
-  if (!employee?.is_admin || employee.is_active === false) {
-    return (
-      <main className="page-error">
-        <section className="error-card">
-          <div className="error-card-icon">!</div>
-          <h1 className="error-title">Доступ запрещен</h1>
-          <p className="error-text">
-            Эта страница доступна только администраторам.
-          </p>
-          <Link href="/catalog" className="error-back-link">
-            Вернуться в каталог
-          </Link>
-        </section>
-      </main>
-    )
-  }
+  const { supabase, user } = await requireAdmin()
 
   const [{ data: directoryData, error: directoryError }, { data: ordersData }, stockAlertCount] =
     await Promise.all([

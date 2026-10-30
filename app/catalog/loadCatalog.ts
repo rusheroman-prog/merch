@@ -1,5 +1,6 @@
-import type { SupabaseClient, User } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database, ProductAudience } from '@/lib/supabase/types'
+import type { SessionEmployee, SessionUser } from '@/lib/session'
 import type { CatalogProduct, CatalogVariant } from './CatalogClient'
 
 type CatalogQueryVariant = {
@@ -39,39 +40,37 @@ const PRODUCT_SELECT = `
  */
 export async function loadCatalogData(
   supabase: SupabaseClient<Database>,
-  user: User,
+  user: SessionUser,
+  employee: SessionEmployee,
   audience: CatalogAudience,
 ) {
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('full_name, is_admin, phone, hired_at')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  // Профиля больше нет: телефон и адрес подставляем из последнего заказа,
-  // чтобы сотруднику не вводить их заново.
-  const { data: lastOrder } = await supabase
-    .from('orders')
-    .select('delivery_type, delivery_address, phone, country')
-    .eq('employee_id', user.id)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  const { data: settings } = await supabase
-    .from('merch_settings')
-    .select('handout_deadline, handout_place')
-    .eq('id', 1)
-    .maybeSingle()
-
   const allowed: ProductAudience[] = audience === 'welcome' ? ['welcome', 'both'] : ['catalog', 'both']
 
-  let { data, error } = await supabase
-    .from('products')
-    .select(PRODUCT_SELECT)
-    .eq('is_active', true)
-    .in('audience', allowed)
-    .order('name', { ascending: true })
+  // Три независимых запроса — параллельно, а не по очереди.
+  const [{ data: lastOrder }, { data: settings }, firstProducts] = await Promise.all([
+    // Профиля больше нет: телефон и адрес подставляем из последнего заказа,
+    // чтобы сотруднику не вводить их заново.
+    supabase
+      .from('orders')
+      .select('delivery_type, delivery_address, phone, country')
+      .eq('employee_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('merch_settings')
+      .select('handout_deadline, handout_place')
+      .eq('id', 1)
+      .maybeSingle(),
+    supabase
+      .from('products')
+      .select(PRODUCT_SELECT)
+      .eq('is_active', true)
+      .in('audience', allowed)
+      .order('name', { ascending: true }),
+  ])
+
+  let { data, error } = firstProducts
 
   if (error?.message.includes('audience')) {
     ({ data, error } = audience === 'catalog'

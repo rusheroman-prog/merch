@@ -2,9 +2,7 @@ import AppNav from '@/components/AppNav'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { cookies } from 'next/headers'
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { needsPasswordSetup } from '@/lib/auth'
+import { requireSession } from '@/lib/session'
 import { SUPPORT_LABEL, SUPPORT_URL } from '@/lib/support'
 import { getWelcomeInvite, WELCOME_COOKIE } from '@/lib/welcome'
 import CatalogClient from '../catalog/CatalogClient'
@@ -19,16 +17,7 @@ export default async function WelcomePage({
 }: {
   searchParams: Promise<{ t?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (await needsPasswordSetup(supabase, user.id)) redirect('/set-password')
-
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('is_admin')
-    .eq('id', user.id)
-    .maybeSingle()
+  const { supabase, user, employee } = await requireSession()
   const isAdmin = Boolean(employee?.is_admin)
 
   const token = (await searchParams).t ?? (await cookies()).get(WELCOME_COOKIE)?.value
@@ -81,7 +70,7 @@ export default async function WelcomePage({
     )
   }
 
-  const { error, props } = await loadCatalogData(supabase, user, 'welcome')
+  const { error, props } = await loadCatalogData(supabase, user, employee, 'welcome')
 
   if (error || props.products.length === 0) {
     return (

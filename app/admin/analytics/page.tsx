@@ -1,8 +1,6 @@
 import AdminShell from '@/components/AdminShell'
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { needsPasswordSetup } from '@/lib/auth'
+import { requireAdmin } from '@/lib/session'
 import { alertLimit, isLowStock, loadAlertMap } from '@/lib/stockAlerts'
 import type { DeliveryType, OrderStatus } from '@/lib/supabase/types'
 import { decline } from '@/lib/utils'
@@ -55,17 +53,7 @@ export default async function AdminAnalyticsPage({
 }: {
   searchParams: Promise<{ period?: string; segment?: string }>
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-  if (await needsPasswordSetup(supabase, user.id)) redirect('/set-password')
-
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('is_admin, email')
-    .eq('id', user.id)
-    .maybeSingle()
-  if (!employee?.is_admin) redirect('/catalog')
+  const { supabase, user, employee } = await requireAdmin()
 
   const params = await searchParams
   const period = PERIODS.find((p) => p.key === params.period) ?? PERIODS[1]

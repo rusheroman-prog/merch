@@ -1,61 +1,13 @@
-import Link from 'next/link'
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
 import { countStockAlerts } from '@/lib/stockAlerts'
-import { needsPasswordSetup } from '@/lib/auth'
+import { requireAdmin } from '@/lib/session'
 import AdminOrdersClient, { type AdminOrder } from './AdminOrdersClient'
 
 export default async function AdminOrdersPage() {
-  const supabase = await createClient()
+  const { supabase, user } = await requireAdmin()
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
-  if (await needsPasswordSetup(supabase, user.id)) {
-    redirect('/set-password')
-  }
-
-  const { data: employee, error: employeeError } = await supabase
-    .from('employees')
-    .select('id, email, full_name, is_admin')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (employeeError) {
-    return (
-      <main className="page-error">
-        <section className="error-card">
-          <div className="error-card-icon">!</div>
-          <h1 className="error-title">Не удалось проверить роль</h1>
-          <p className="error-text">{employeeError.message}</p>
-        </section>
-      </main>
-    )
-  }
-
-  if (!employee?.is_admin) {
-    return (
-      <main className="page-error">
-        <section className="error-card">
-          <div className="error-card-icon">🔒</div>
-          <h1 className="error-title">Доступ запрещён</h1>
-          <p className="error-text">
-            Эта страница доступна только администраторам.
-          </p>
-          <Link href="/catalog" className="error-back-link">
-            ← Вернуться в каталог
-          </Link>
-        </section>
-      </main>
-    )
-  }
-
-  const { data, error } = await supabase
+  // Заказы и счётчик маячков — параллельно.
+  const [{ data, error }, stockAlertCount] = await Promise.all([
+    supabase
     .from('orders')
     .select(
       `
@@ -94,9 +46,9 @@ export default async function AdminOrdersPage() {
       )
     `
     )
-    .order('created_at', { ascending: false })
-
-  const stockAlertCount = await countStockAlerts(supabase)
+    .order('created_at', { ascending: false }),
+    countStockAlerts(supabase),
+  ])
 
   if (error) {
     return (
