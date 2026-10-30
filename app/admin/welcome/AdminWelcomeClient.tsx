@@ -105,7 +105,7 @@ export default function AdminWelcomeClient({
             <div className="ap-empty-mark">!</div>
             <h2 className="ap-empty-title">Нужна миграция</h2>
             <p className="ap-empty-text">
-              Прогоните <b>merch-welcome-pack.sql</b> в Supabase SQL Editor — после этого здесь можно
+              Прогоните <b>20261030000400_merch_welcome_pack.sql</b> в Supabase SQL Editor — после этого здесь можно
               будет создавать ссылки на welcome pack.
             </p>
           </section>

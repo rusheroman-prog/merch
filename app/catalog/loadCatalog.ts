@@ -34,7 +34,7 @@ const PRODUCT_SELECT = `
 
 /**
  * Данные для CatalogClient, общие для /catalog и /welcome.
- * До миграции merch-welcome-pack.sql колонки audience нет: тогда каталог
+ * До миграции 20261030000400_merch_welcome_pack.sql колонки audience нет: тогда каталог
  * показывает все товары, а welcome pack — пустой.
  */
 export async function loadCatalogData(

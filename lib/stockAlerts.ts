@@ -4,7 +4,7 @@ import type { Database } from '@/lib/supabase/types'
 /** Порог «маячка» по умолчанию: предупреждаем, когда доступно ≤ 4 шт. */
 export const DEFAULT_ALERT_QTY = 4
 
-/** Пороги по variant_id. null — миграция merch-stock-alerts.sql ещё не прогнана. */
+/** Пороги по variant_id. null — миграция 20261030000500_merch_stock_alerts.sql ещё не прогнана. */
 export type AlertMap = Map<string, number | null> | null
 
 export function alertLimit(alertQty?: number | null) {

@@ -111,8 +111,8 @@ export default async function AdminProductsPage() {
     )
     .order('name', { ascending: true })
 
-  // archived_at, audience и segment появляются миграциями merch-product-archive.sql,
-  // merch-welcome-pack.sql и merch-segments-holds.sql. Пока какой-то нет — убираем её из запроса и
+  // archived_at, audience и segment появляются миграциями 20261030000200_merch_product_archive.sql,
+  // 20261030000400_merch_welcome_pack.sql и 20261030000600_merch_segments_holds.sql. Пока какой-то нет — убираем её из запроса и
   // показываем страницу без соответствующей функции, а не ошибку.
   let optional = ['archived_at', 'audience', 'segment']
   let { data: products, error: productsError } = await loadProducts(optional)
@@ -122,7 +122,7 @@ export default async function AdminProductsPage() {
   }
   const archiveReady = optional.includes('archived_at')
 
-  // Пороги маячков грузим отдельно: до merch-stock-alerts.sql колонки нет.
+  // Пороги маячков грузим отдельно: до 20261030000500_merch_stock_alerts.sql колонки нет.
   const alerts = await loadAlertMap(supabase)
   const productsWithAlerts = ((products ?? []) as unknown as AdminProduct[]).map((product) => ({
     ...product,

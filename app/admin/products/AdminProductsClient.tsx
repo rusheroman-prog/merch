@@ -32,7 +32,7 @@ export type AdminVariant = {
   total_qty: number
   reserved_qty: number
   is_active: boolean
-  /** Порог маячка; поля нет до миграции merch-stock-alerts.sql */
+  /** Порог маячка; поля нет до миграции 20261030000500_merch_stock_alerts.sql */
   alert_qty?: number | null
   created_at: string
   updated_at: string
@@ -48,9 +48,9 @@ export type AdminProduct = {
   images: string[]
   is_active: boolean
   archived_at?: string | null
-  /** Есть только после миграции merch-welcome-pack.sql */
+  /** Есть только после миграции 20261030000400_merch_welcome_pack.sql */
   audience?: ProductAudience
-  /** Есть только после миграции merch-segments-holds.sql */
+  /** Есть только после миграции 20261030000600_merch_segments_holds.sql */
   segment?: ProductSegment | null
   created_at: string
   updated_at: string
@@ -63,7 +63,7 @@ type Props = {
   categories: AdminCategory[]
   adminEmail: string
   orderCount: number
-  /** false, пока не прогнана миграция merch-product-archive.sql */
+  /** false, пока не прогнана миграция 20261030000200_merch_product_archive.sql */
   archiveReady: boolean
 }
 

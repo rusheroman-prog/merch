@@ -36,7 +36,7 @@ export default async function AdminWelcomePage() {
       adminEmail={employee.email || user.email || 'admin'}
       orderCount={orderCount ?? 0}
       stockAlertCount={stockAlertCount}
-      // До миграции merch-welcome-pack.sql таблицы нет — показываем подсказку.
+      // До миграции 20261030000400_merch_welcome_pack.sql таблицы нет — показываем подсказку.
       migrationReady={!invitesError}
       invites={(invites ?? []) as unknown as WelcomeInviteRow[]}
       welcomeProductCount={welcomeProducts?.length ?? 0}

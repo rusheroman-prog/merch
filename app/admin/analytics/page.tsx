@@ -95,7 +95,7 @@ export default async function AdminAnalyticsPage({
     loadAlertMap(supabase),
   ])
 
-  // До merch-segments-holds.sql колонки segment нет — работаем без переключателя.
+  // До 20261030000600_merch_segments_holds.sql колонки segment нет — работаем без переключателя.
   const segmentsReady = !productsResult.error
   const { data: productsData } = segmentsReady ? productsResult : await loadProducts(false)
 

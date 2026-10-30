@@ -120,7 +120,7 @@ export default async function AdminDashboardPage() {
     .eq('id', 1)
     .maybeSingle()
 
-  // Командировочные заказы — задачи с дедлайном. До миграции merch-business-trip.sql
+  // Командировочные заказы — задачи с дедлайном. До миграции 20261030000300_merch_business_trip.sql
   // колонок trip_* нет: запрос вернёт ошибку, и блок просто не покажется.
   const { data: tripRows } = await supabase
     .from('orders')
@@ -129,7 +129,7 @@ export default async function AdminDashboardPage() {
     .not('status', 'in', '(received,cancelled,rejected)')
     .order('trip_to', { ascending: true })
 
-  // Ручные резервы «до даты» (merch-segments-holds.sql) — те же задачи.
+  // Ручные резервы «до даты» (20261030000600_merch_segments_holds.sql) — те же задачи.
   const { data: holdRows } = await supabase
     .from('orders')
     .select('id, order_number, full_name, email, pickup_status, hold_until')
@@ -171,7 +171,7 @@ export default async function AdminDashboardPage() {
 
   const uniqueEmployees = new Set(orders.map(o => o.employee_id)).size
 
-  // Маячки: у варианта может быть свой порог (merch-stock-alerts.sql), иначе 4 шт.
+  // Маячки: у варианта может быть свой порог (20261030000500_merch_stock_alerts.sql), иначе 4 шт.
   const alerts = await loadAlertMap(supabase)
   const lowStockVariants = products.flatMap(product =>
     product.product_variants

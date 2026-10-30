@@ -12,7 +12,7 @@ export type WelcomeInvite = {
   orderNumber: string | null
 }
 
-/** null — RPC недоступен (миграция merch-welcome-pack.sql ещё не прогнана). */
+/** null — RPC недоступен (миграция 20261030000400_merch_welcome_pack.sql ещё не прогнана). */
 export async function getWelcomeInvite(
   supabase: SupabaseClient<Database>,
   token: string,
